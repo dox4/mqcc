@@ -1,0 +1,146 @@
+[
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/token.o",
+            "token.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "token.cc"
+    },
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/mqcc.o",
+            "mqcc.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "mqcc.cc"
+    },
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/error.o",
+            "error.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "error.cc"
+    },
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/parser.o",
+            "parser.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "parser.cc"
+    },
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/scope.o",
+            "scope.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "scope.cc"
+    },
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/ast.o",
+            "ast.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "ast.cc"
+    },
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/generator.o",
+            "generator.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "generator.cc"
+    },
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/srcpos.o",
+            "srcpos.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "srcpos.cc"
+    },
+    {
+        "arguments": [
+            "g++",
+            "-c",
+            "-std=c++2a",
+            "-g",
+            "-fPIC",
+            "-Wall",
+            "-DDEBUG",
+            "-o",
+            "build/scanner.o",
+            "scanner.cc"
+        ],
+        "directory": "/root/github/mqcc",
+        "file": "scanner.cc"
+    }
+]
