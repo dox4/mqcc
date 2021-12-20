@@ -35,6 +35,10 @@ const Type *BinaryExpr::type() const noexcept {
 
 /// BinaryExpr end
 
+void FloatConst::accept(Visitor *v) {
+    v->visit_float_const(this);
+}
+
 /// IntConst
 
 void IntConst::accept(Visitor *v) { v->visit_int_const(this); }

@@ -33,6 +33,7 @@ class Visitor {
     virtual void visit(AstNode *);
     // expressions
     virtual void visit_int_const(IntConst *)           = 0;
+    virtual void visit_float_const(FloatConst *)       = 0;
     virtual void visit_string_literal(StringLiteral *) = 0;
     virtual void visit_binary(BinaryExpr *)            = 0;
     virtual void visit_func_call(FuncCallExpr *fd)     = 0;
@@ -67,6 +68,7 @@ class Generator : public Visitor {
     std::string code() const;
     // expressions
     virtual void visit_int_const(IntConst *);
+    virtual void visit_float_const(FloatConst *);
     virtual void visit_string_literal(StringLiteral *);
     virtual void visit_binary(BinaryExpr *);
     virtual void visit_func_call(FuncCallExpr *fd);
@@ -112,6 +114,8 @@ class Generator : public Visitor {
     void emit_text();
 
     const std::string add_rodata(const std::string str);
+    const std::string add_rodata(const double dval);
+    const std::string add_rodata(const float fval);
 };
 
 // class Address;

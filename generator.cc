@@ -4,6 +4,7 @@
 #include "token.h"
 #include "type.h"
 #include <cstddef>
+#include <cstdint>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -95,9 +96,9 @@ constexpr string_view to_quad[][2] {
 // ConVerT with Truncation Scalar Single/Double-precision floating-point value to Signed Integer
 constexpr string_view f2i[][2] {
     // scalar single to doubleword,  scalar double to doubleword
-    {  "cvttss2si",                  "cvttsd2si"  },
-    // scalar single to doubleword,  scalar double to doubleword
     {  "cvttss2siq",                 "cvttsd2siq" },
+    // scalar single to doubleword,  scalar double to doubleword
+    {  "cvttss2si",                  "cvttsd2si"  },
 };
 
 constexpr string_view i2f[][2] {
@@ -121,7 +122,9 @@ class LabelMaker {
     }
 };
 
-static LabelMaker const_label    = LabelMaker("C");
+static LabelMaker const_label = LabelMaker("C");
+// floating number as unsigned integer number
+static LabelMaker float_label    = LabelMaker("FAU");
 static LabelMaker func_end_label = LabelMaker("FE");
 static LabelMaker branch_label   = LabelMaker("B");
 /// static variables end
@@ -189,7 +192,8 @@ static const string simple_addr(const Object *obj) {
     if (obj->offset() < 0) {
         return onto_stack(obj->offset());
     }
-    return string(reg_args[obj->offset()][8 - obj->type()->size()]);
+    return obj->type()->is_float() ? string(xmm[obj->offset()])
+                                   : string(reg_args[obj->offset()][8 - obj->type()->size()]);
 }
 
 static const string iinst(const string &ins, int width) {
@@ -243,19 +247,62 @@ Visitor::~Visitor() {}
 // Visitor end
 
 // RoData
+enum Alignment {
+    Alignment1 = 1,
+    Alignment2 = 2,
+    Alignment4 = 4,
+    Alignment8 = 8,
+};
 
 class RoData {
   public:
-    explicit RoData(const string label, const string val)
-        : _label(label), _str("\"" + val + "\""), _align("1"), _type(".string") {}
+    explicit RoData(const string label, Alignment align, const string &type)
+        : _label(label), _align(std::to_string(align)), _type(type) {}
+    explicit RoData(const string label, Alignment align)
+        : _label(label), _align(std::to_string(align)), _type(align_type(align)) {}
 
     const string &label() const noexcept { return _label; }
-    const string &data() const noexcept { return _str; }
     const string &align() const noexcept { return _align; }
     const string &type() const noexcept { return _type; }
+    virtual const string data() const noexcept = 0;
 
   private:
-    const string _label, _str, _align, _type;
+    const string _label, _align, _type;
+    static const string align_type(Alignment align) {
+        switch (align) {
+        case Alignment1:
+            return ".byte";
+        case Alignment2:
+            return ".word";
+        case Alignment4:
+            return ".long";
+        case Alignment8:
+            return ".quad";
+        }
+        error("invalied alignment: %d", align);
+        return "";
+    }
+};
+
+class StrRoData : public RoData {
+  public:
+    explicit StrRoData(const string &label, const string val)
+        : RoData(label, Alignment1, ".string"), _str("\"" + val + "\"") {}
+    virtual const string data() const noexcept { return _str; }
+
+  private:
+    const string _label, _str;
+};
+
+template <typename UintType> class NumRoData : public RoData {
+  public:
+    explicit NumRoData(const string &label, const UintType value)
+        : RoData(label, static_cast<Alignment>(sizeof(UintType))), _value(value) {}
+
+    virtual const string data() const noexcept { return std::to_string(_value); }
+
+  private:
+    const UintType _value;
 };
 
 // RoData end
@@ -393,7 +440,7 @@ void Generator::emit_cvt(const Type *from, const Type *to) {
 }
 void Generator::emit_cvt_to_int(const Type *from, const Type *to) {
     if (from->is_float()) {
-        emit(f2i[to->size() == 4][from->size() == 4], fdest(), eax);
+        emit(f2i[to->size() == 4][from->size() == 4], fdest(), idest(to->size()));
     } else {
         emit_promot_int(from);
     }
@@ -415,9 +462,10 @@ void Generator::emit_promot_int(const Type *from) {
         }
         return;
     case TY_LONG:
+    case TY_PTR:
         return;
     default:
-        unreachable();
+        error("type %s could not be converted to integer.", from->normalize().c_str());
     }
 }
 
@@ -468,8 +516,21 @@ void Generator::emit_cvt_to_float(const Type *from, const Type *to) {
 
 const string Generator::add_rodata(const string str) {
     auto str_label = const_label();
-    _rodata.push_back(new RoData(str_label, str));
+    _rodata.push_back(new StrRoData(str_label, str));
     return str_label;
+}
+const string Generator::add_rodata(const double dval) {
+    auto fau_label     = float_label();
+    const uint64_t val = *reinterpret_cast<const uint64_t *>(&dval);
+    // debug("fau_label: %s, with value: %lf", fau_label.c_str(), dval);
+    _rodata.push_back(new NumRoData<uint64_t>(fau_label, val));
+    return fau_label;
+}
+const string Generator::add_rodata(const float fval) {
+    auto fau_label     = float_label();
+    const uint32_t val = *reinterpret_cast<const uint32_t *>(&fval);
+    _rodata.push_back(new NumRoData<uint32_t>(fau_label, val));
+    return fau_label;
 }
 
 const string static_addr(const string &label, int offset) {
@@ -493,14 +554,14 @@ void Generator::visit_func_call(FuncCallExpr *fc) {
         visit(arg);
         auto width   = arg->type()->size();
         auto isfloat = arg->type()->is_float();
-        auto reg     = idest(width);
+        auto reg     = isfloat ? fdest() : idest(width);
         push(reg, width, isfloat);
     }
     for (size_t idx = 0; idx < args.size() && idx < 6; idx++) {
         auto arg     = args.at(idx);
         auto size    = arg->type()->size();
         auto isfloat = arg->type()->is_float();
-        auto reg     = reg_args[idx][8 - size];
+        auto reg     = isfloat ? xmm[idx] : reg_args[idx][8 - size];
         pop(reg, size, isfloat);
     }
     // process function address
@@ -546,6 +607,19 @@ void Generator::visit_int_const(IntConst *ic) {
     emit(mov(width), ic->value(), r);
 }
 
+void Generator::visit_float_const(FloatConst *fc) {
+    auto width = fc->type()->size();
+    auto r     = fdest();
+    auto dval  = fc->value();
+    if (width == 4) {
+        float fval = dval;
+        auto label = add_rodata(fval);
+        emit(fmov(width), static_addr(label, 0), r);
+    } else {
+        auto label = add_rodata(dval);
+        emit(fmov(width), static_addr(label, 0), r);
+    }
+}
 void Generator::visit_string_literal(StringLiteral *str) {
     auto label = add_rodata(str->get_value());
     emit("lea", static_addr(label, 0), rax);
@@ -664,10 +738,15 @@ void Generator::visit_init_declarator(InitDeclarator *id) {
     if (id->is_initialized()) {
         visit(id->initializer());
         auto type  = id->halftype()->type();
-        auto m     = mov(type->size());
         auto token = id->halftype()->token();
         auto name  = token->get_lexeme();
         auto obj   = _current_scope->find_var_in_local(name);
+        // deal with floating number
+        if (type->is_float()) {
+            emit(fmov(type->size()), fdest(), simple_addr(obj));
+            return;
+        }
+        auto m = mov(type->size());
         emit(m, idest(type->size()), simple_addr(obj));
     }
 }
@@ -680,8 +759,13 @@ void Generator::visit_initializer(Initializer *init) {
 void Generator::visit_identifier(Identifier *ident) {
     auto obj = _current_scope->find_var_in_local(ident->get_value());
     // debug("obj is null? %d", obj == nullptr);
-    auto size = obj->type()->size();
-    emit(mov(size), simple_addr(obj), idest(size));
+    auto type = obj->type();
+    auto size = type->size();
+    if (type->is_float()) {
+        emit(fmov(size), simple_addr(obj), fdest());
+    } else {
+        emit(mov(size), simple_addr(obj), idest(size));
+    }
 }
 
 void Generator::visit_conv(ConvExpr *conv) {

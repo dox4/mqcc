@@ -28,6 +28,7 @@ inline void error_unexpected(char expected, char actual) {
             fprintf(stderr, "\n");                                                                 \
         }                                                                                          \
     } while (false)
+#define set_mark() debug("set a mark at %s:%d", __FILE__, __LINE__)
 #else
 #define debug(...) (void)0
 #define mqassert(expr, ...) (void)0

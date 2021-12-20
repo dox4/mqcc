@@ -1,5 +1,6 @@
 #ifndef _MQCC_TYPE_H__
 #define _MQCC_TYPE_H__
+#include "error.h"
 #include <stdint.h>
 #include <string>
 #include <string_view>
@@ -43,10 +44,14 @@ class Type {
     virtual const std::string normalize() const = 0;
     virtual const int size() const noexcept { return _size; };
     virtual std::string_view name() const { return _name; }
+    virtual bool is_void() const noexcept { return false; }
     virtual bool is_arithmetic() const noexcept { return false; }
     virtual bool is_float() const noexcept { return false; }
+    virtual bool is_integer() const noexcept { return false; }
     virtual bool is_signed() const noexcept { return false; }
+    virtual bool is_pointer() const noexcept { return false; }
     virtual bool equals_to(const Type *other) const { return this == other; }
+    virtual bool is_compitable_with(const Type *other) const { return this == other; }
     // virtual const int align() const = 0;
     // virtual bool is_atomic() const  = 0;
 };
@@ -132,16 +137,46 @@ class BuiltinType : public Type {
     virtual const int size() const noexcept { return _size; }
     virtual bool is_signed() const noexcept { return _is_signed; }
     virtual bool is_arithmetic() const noexcept { return this != &Void; }
+    virtual bool is_void() const noexcept { return this == &Void; }
     virtual bool is_float() const noexcept {
         return this == &Double || this == &Float || this == &LDouble;
+    }
+    virtual bool is_integer() const noexcept { return is_arithmetic() && !is_float(); }
+    virtual bool is_compitable_with(const Type *that) const {
+        if (Type::is_compitable_with(that))
+            return true;
+        mqassert(this != &Void && that != &Void, "void is uncompitable with any types.");
+        if (that->is_pointer()) {
+            // TODO show a warning when true
+            return is_integer();
+        }
+        return that->is_arithmetic();
     }
 };
 
 class PointerType : public Type {
   public:
     explicit PointerType(const Type *point_to) : Type(TY_PTR, 8, ""), _point_to(point_to) {}
+    const Type *point_to() const { return _point_to; }
     virtual const std::string normalize() const { return _point_to->normalize() + "*"; }
     virtual const int size() const noexcept { return 8; };
+    virtual bool is_pointer() const noexcept { return true; }
+    virtual bool is_compitable_with(const Type *that) const {
+        if (Type::is_compitable_with(that)) {
+            return true;
+        }
+        if (that->is_pointer()) {
+            return true;
+        }
+        // long
+        if (that->is_integer()) {
+            if (that->size() < size()) {
+                // TODO: warn that cast from smaller integer to pointer
+            }
+            return true;
+        }
+        return false;
+    }
 
   private:
     const Type *_point_to;

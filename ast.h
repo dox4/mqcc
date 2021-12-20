@@ -48,6 +48,7 @@ class ExtDecl : public AstNode {};
 
 enum ExprKind {
     EXPR_INT,
+    EXPR_FLOAT,
     EXPR_FUNC_CALL,
     EXPR_SUBSCRIPT,
     EXPR_IDENT,
@@ -176,7 +177,19 @@ class Identifier : public PrimaryExpr {
 //   floating-constant
 //   enumeration-constant
 //   character-constant
-// class Const : public PrimaryExpr {};
+class FloatConst : public PrimaryExpr {
+  public:
+    explicit FloatConst(double val, bool isfloat)
+        : PrimaryExpr(EXPR_FLOAT), _value(val),
+          _type(isfloat ? &BuiltinType::Float : &BuiltinType::Double) {}
+    const double value() const noexcept { return _value; }
+    virtual const Type *type() const noexcept { return _type; }
+    virtual void accept(Visitor *);
+
+  private:
+    double _value;
+    const Type *_type;
+};
 class IntConst : public PrimaryExpr {
   public:
     explicit IntConst(int val) : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Int) {}

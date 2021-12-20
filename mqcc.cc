@@ -101,6 +101,7 @@ int main(int argc, char **argv) {
     auto code = g.code();
 
     auto tmp = write_asm(code);
+    set_mark();
 
     run_gcc(tmp, opt.output_file);
 

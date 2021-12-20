@@ -97,6 +97,10 @@ static int get_priority(int tok_type) {
 static Expr *conv(const Type *type, Expr *expr) {
     if (expr->type()->equals_to(type))
         return expr;
+    if (!type->is_compitable_with(expr->type())) {
+        error("uncompitable type with implicit conversion: from %s to %s",
+              expr->type()->normalize().c_str(), type->normalize().c_str());
+    }
     return new ConvExpr(type, expr);
 }
 
@@ -581,6 +585,12 @@ Decl *Parser::parse_decl(type_counter_t spec, Declarator *declarator) { return n
 
 Expr *Parser::process_const() {
     auto tk = peek();
+    if (tk->get_type() == TK_FNUMBER) {
+        char *end;
+        double dval = std::strtod(tk->get_lexeme(), &end);
+        next();
+        return new FloatConst(dval, *end == 'f');
+    }
     if (tk->get_type() == TK_INUMBER) {
         char *end;
         auto nval = std::strtoull(tk->get_lexeme(), &end, 10);
@@ -634,15 +644,16 @@ Expr *Parser::process_const() {
 
 // expressions
 //  primary-expression:
-//    identifier
-//    constant
-//    string-literal
-//    ( expression )
-//    generic-selection
+//   O  identifier
+//   X  constant
+//   O  string-literal
+//   O  ( expression )
+//   X  generic-selection
 Expr *Parser::parse_primary() {
     auto tk = peek();
     switch (tk->get_type()) {
     case TK_INUMBER:
+    case TK_FNUMBER:
         return process_const();
     case TK_NAME:
         return parse_ident();
@@ -674,15 +685,15 @@ Expr *Parser::parse_constant() { return nullptr; }
 Expr *Parser::parse_generic() { return nullptr; }
 
 // postfix-expression:
-//   primary-expression
-//   postfix-expression [ expression ]
-//   postfix-expression ( argument-expression-list(opt) )
-//   postfix-expression . identifier
-//   postfix-expression -> identifier
-//   postfix-expression ++
-//   postfix-expression --
-//   ( type-name ) { initializer-list }
-//   ( type-name ) { initializer-list , }
+//  X  primary-expression
+//  X  postfix-expression [ expression ]
+//  O  postfix-expression ( argument-expression-list(opt) )
+//  X  postfix-expression . identifier
+//  X  postfix-expression -> identifier
+//  X  postfix-expression ++
+//  X  postfix-expression --
+//  X  ( type-name ) { initializer-list }
+//  X  ( type-name ) { initializer-list , }
 Expr *Parser::parse_postfix() {
     Expr *primary = parse_primary();
     // parse arguments
@@ -817,10 +828,20 @@ FuncDef *Parser::parse_func_def(const HalfType *base) {
     // registry func name to scope
     _scope      = _scope->drill_down();
     auto params = func_type->parameters();
-    for (size_t idx = 0; idx < params.size(); idx++) {
-        auto param = params.at(idx);
-        auto obj   = new Object(param->token(), param->type(), nullptr);
-        obj->set_offset(idx);
+    int idx_int = 0, idx_float = 0;
+    for (auto param : params) {
+        auto ptype  = param->type();
+        auto ptoken = param->token();
+        auto obj    = new Object(ptoken, ptype, nullptr);
+        // deal with floating number
+        if (ptype->is_float()) {
+            obj->set_offset(idx_float++);
+        }
+        // deal with integer and pointer
+        // TODO: struct/union
+        else {
+            obj->set_offset(idx_int++);
+        }
         _scope->push_var(param->token()->get_lexeme(), obj);
     }
     // set current funtion type

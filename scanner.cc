@@ -132,7 +132,7 @@ const Token *Scanner::get_token() {
     case '!':
         next();
         if (try_next('='))
-            return  make_token(TK_NEQUAL);
+            return make_token(TK_NEQUAL);
         return make_token(TK_NOT);
     case '=':
         next();
@@ -157,14 +157,22 @@ const Token *Scanner::get_number() {
     while (isdigit(peek()))
         next();
 
-    // postfix
-    if (peek() == 'u' || peek() == 'U')
-        next();
-    if (peek() == 'l' || peek() == 'L') {
-        next();
-        if (peek() == 'l' || peek() == 'L')
+    // floating number
+    if (try_next('.')) {
+        while (isdigit(peek()))
             next();
+        try_next('f');
+        auto end      = _sp->current();
+        auto size     = end - start;
+        char *literal = new char[size + 1];
+        strncpy(literal, start, size);
+        literal[size] = '\0';
+        return make_token(TK_FNUMBER, literal);
     }
+    // integer number postfix
+    try_next('u') || try_next('U');
+    try_next('l') || try_next('L');
+    try_next('l') || try_next('L');
 
     auto end      = _sp->current();
     auto size     = end - start;
