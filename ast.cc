@@ -35,9 +35,7 @@ const Type *BinaryExpr::type() const noexcept {
 
 /// BinaryExpr end
 
-void FloatConst::accept(Visitor *v) {
-    v->visit_float_const(this);
-}
+void FloatConst::accept(Visitor *v) { v->visit_float_const(this); }
 
 /// IntConst
 
@@ -54,16 +52,13 @@ const Type *Identifier::type() const noexcept { return _scope->find_var_in_local
 
 void FuncCallExpr::accept(Visitor *visitor) { visitor->visit_func_call(this); }
 
-const Type *FuncCallExpr::type() const noexcept {
-    return _left->type();
-}
+const Type *FuncCallExpr::type() const noexcept { return _left->type(); }
 
 /// FuncCallExpr end
 
-void ConvExpr::accept(Visitor* v) {
-    v->visit_conv(this);
-}
-
+void ConvExpr::accept(Visitor *v) { v->visit_conv(this); }
+void CastExpr::accept(Visitor *v) { v->visit_cast(this); }
+void UnaryExpr::accept(Visitor *v) { v->visit_unary(this); }
 /// FuncDef
 
 void FuncDef::accept(Visitor *visitor) { visitor->visit_func_def(this); }

@@ -3,6 +3,7 @@
 
 #include "error.h"
 #include "scope.h"
+#include "token.h"
 #include "type.h"
 #include "typedefs.h"
 #include <cstdint>
@@ -56,6 +57,8 @@ enum ExprKind {
 
     // unary expression
     EXPR_UNARY,
+    // cast
+    EXPR_CAST,
 
     // binary expression
     EXPR_MUL,     // *
@@ -228,6 +231,29 @@ class UnaryExpr : public Expr {
 
   public:
     virtual bool is_unary() const noexcept { return true; }
+    virtual int unary_type() const noexcept = 0;
+    virtual void accept(Visitor *);
+};
+
+template <int Type> class TypedUnaryExpr : public UnaryExpr {
+  public:
+    explicit TypedUnaryExpr(Expr *oprand) : UnaryExpr(), _type(Type) {}
+    virtual int unary_type() const noexcept { return Type; };
+
+  private:
+    int _type;
+};
+
+class CastExpr : public Expr {
+  public:
+    explicit CastExpr(const Type *to, Expr *expr) : Expr(EXPR_CAST), _to(to), _expr(expr) {}
+    const Type *to_type() const noexcept { return _to; }
+    Expr *from_expr() const noexcept { return _expr; }
+    virtual void accept(Visitor *);
+
+  private:
+    const Type *_to;
+    Expr *_expr;
 };
 
 class Assignment : public Expr {
@@ -236,11 +262,18 @@ class Assignment : public Expr {
         mqassert(lhs->kind() <= EXPR_UNARY,
                  "the left of an assignment expression must be an unary expression.");
     }
+    explicit Assignment(Expr *lhs, Expr *rhs, int type)
+        : Expr(EXPR_ASSIGNMENT), _lhs(lhs), _rhs(rhs), _type(type) {
+        mqassert(lhs->kind() <= EXPR_UNARY,
+                 "the left of an assignment expression must be an unary expression.");
+    }
     Expr *lhs() const noexcept { return _lhs; }
     Expr *rhs() const noexcept { return _rhs; }
+    int assign_type() const noexcept { return _type; }
 
   private:
     Expr *_lhs, *_rhs;
+    int _type = TK_ASSIGN;
 };
 
 // implicit conversion expression

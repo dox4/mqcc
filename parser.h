@@ -105,6 +105,9 @@ class Parser {
     FuncDef *parse_func_def(type_counter_t, Declarator *);
     Block *parse_global_variable(const Type *);
 
+    // parse type name
+    const Type* parse_type_name();
+
     // check name
     void check_name(const InitDeclarator*, Attribute*);
 
@@ -114,8 +117,10 @@ class Parser {
     // base functions
     void next();
     const Token *peek();
+    bool test(int expected);
     void expect(int expected);
     bool try_next(int expected);
+    void unget();
 };
 
 #endif

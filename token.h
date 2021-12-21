@@ -55,9 +55,9 @@ enum TokenType {
     TK_MINUS_ASSIGN,  // -=
     TK_LSHIFT_ASSIGN, // <<=
     TK_RSHIFT_ASSIGN, // >>=
-    TK_BAND_ASSIGN,    // &=
+    TK_BAND_ASSIGN,   // &=
     TK_XOR_ASSIGN,    // ^=
-    TK_BOR_ASSIGN,     // |=
+    TK_BOR_ASSIGN,    // |=
     TK_DHASH,         // ##
     TK_ALSB,          // <:   alternative spelling of [
     TK_ARSB,          // :>   alternative spelling of ]
@@ -111,10 +111,10 @@ enum TokenType {
     TK__STATIC_ASSERT, // _Static_assert
     TK__THREAD_LOCAL,  // _Thread_local
 
-    TK_STRING = 300,  // string literal
-    TK_INUMBER, // integer number
-    TK_FNUMBER, // float number
-    TK_NAME,    // identifier
+    TK_STRING = 300, // string literal
+    TK_INUMBER,      // integer number
+    TK_FNUMBER,      // float number
+    TK_NAME,         // identifier
 
     TK_EOF = 404, // end of file
 };
@@ -132,6 +132,8 @@ class Token {
     bool is_type_token() const noexcept;
     bool is_storage_class() const noexcept;
     bool is_builtin_type() const noexcept;
+    bool is_assign_operator() const noexcept;
+    bool is_unary_operator() const noexcept;
     bool is_decl_start() const noexcept;
 
     static bool is_line_terminater(int);

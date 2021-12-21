@@ -116,7 +116,7 @@ Parser::Parser(Scanner *scanner) : _scanner(scanner), _lookups(), _consumed() {
 // by next token or if the parsed declarator indicate a function
 TransUnit *Parser::parse() {
     list<ExtDecl *> decls;
-    while (peek()->get_type() != TK_EOF) {
+    while (!test(TK_EOF)) {
         auto attr      = new Attribute;
         auto base_type = parse_declaration_specifiers(attr);
         // typedef
@@ -130,7 +130,7 @@ TransUnit *Parser::parse() {
             auto var    = _scope->find_var_in_local(prefix->token()->get_lexeme());
             if (var == nullptr) {
                 auto funcdecl = new Object(prefix->token(), prefix->type(), attr);
-                if (peek()->get_type() == '{') {
+                if (test('{')) {
                     current = parse_func_def(prefix);
                 } else if (try_next(';')) {
                     funcdecl->set_defined(false);
@@ -145,7 +145,7 @@ TransUnit *Parser::parse() {
                              prefix->type()->normalize().c_str());
                 }
                 if (var->is_function()) {
-                    if (peek()->get_type() == '{') {
+                    if (test('{')) {
                         if (var->is_defined())
                             error_at(prefix->token()->get_postion(), "function redefined.");
                         current = parse_func_def(prefix);
@@ -471,7 +471,7 @@ Block *Parser::parse_init_declarators(const Type *base) {
 
 // direct declarator needs pointer
 const Type *Parser::parse_pointer(const Type *base) {
-    while (peek()->get_type() == TK_STAR) {
+    while (test(TK_STAR)) {
         base = new PointerType(base);
         next();
     }
@@ -523,7 +523,7 @@ vector<const HalfType *> Parser::parse_parameters() {
         return result;
     }
     // (void)
-    else if (peek()->get_type() == TK_VOID) {
+    else if (test(TK_VOID)) {
         next();
         expect(')');
         return result;
@@ -544,7 +544,7 @@ vector<const HalfType *> Parser::parse_parameters() {
 }
 
 Type *Parser::parse_array_or_func_decl(const Type *fake_base, const char *name) {
-    if (peek()->get_type() == '(') {
+    if (test('(')) {
         auto params = parse_parameters();
         return new FuncType(fake_base, string_view(name), params);
     } else if (try_next('[')) {
@@ -697,7 +697,7 @@ Expr *Parser::parse_generic() { return nullptr; }
 Expr *Parser::parse_postfix() {
     Expr *primary = parse_primary();
     // parse arguments
-    if (peek()->get_type() == '(') {
+    if (test('(')) {
         vector<Expr *> args = parse_args();
         return new FuncCallExpr(primary, args);
     }
@@ -720,9 +720,65 @@ vector<Expr *> Parser::parse_args() {
     expect(')');
     return ret;
 }
-
-Expr *Parser::parse_unary() { return parse_postfix(); }
-Expr *Parser::parse_cast() { return parse_unary(); }
+// (6.5.3) unary-expression:
+//      postfix-expression
+//      ++ unary-expression
+//      -- unary-expression
+//      unary-operator cast-expression
+//      sizeof unary-expression
+//      sizeof ( type-name )
+//      alignof ( type-name )
+Expr *Parser::parse_unary() {
+    if (try_next(TK_INC))
+        return new TypedUnaryExpr<TK_INC>(parse_unary());
+    if (try_next(TK_DEC))
+        return new TypedUnaryExpr<TK_DEC>(parse_unary());
+    // unary operator
+    if (try_next('&'))
+        return new TypedUnaryExpr<'&'>(parse_cast());
+    if (try_next('*'))
+        return new TypedUnaryExpr<'*'>(parse_cast());
+    if (try_next('+'))
+        return new TypedUnaryExpr<'+'>(parse_cast());
+    if (try_next('-'))
+        return new TypedUnaryExpr<'~'>(parse_cast());
+    if (try_next('!'))
+        return new TypedUnaryExpr<'!'>(parse_cast());
+    if (try_next('&'))
+        return new TypedUnaryExpr<'&'>(parse_cast());
+    if (try_next(TK_SIZEOF)) {
+        if (try_next('(')) {
+            auto type = parse_type_name();
+            if (type) {
+                expect(')');
+                return new IntConst(type->size());
+            }
+            unget();
+        }
+        auto expr = parse_unary();
+        return new IntConst(expr->type()->size());
+    }
+    return parse_postfix();
+}
+// (6.5.4) cast-expression:
+//              unary-expression
+//              ( type-name ) cast-expression
+Expr *Parser::parse_cast() {
+    if (try_next('(')) {
+        // TODO: parse_type_name
+        auto name = peek();
+        auto type = _scope->find_type(name->get_lexeme());
+        if (type) {
+            expect(')');
+            auto expr = parse_cast();
+            return new CastExpr(type, expr);
+        } else {
+            while (!test('('))
+                unget();
+        }
+    }
+    return parse_unary();
+}
 // Expr *Parser::parse_mult() { return parse_cast(); }
 // Expr *Parser::parse_add() { return parse_mult(); }
 // Expr *Parser::parse_shift() { return parse_add(); }
@@ -776,7 +832,18 @@ Expr *Parser::parse_conditional() {
 // assignment-expression:
 //   conditional-expression
 //   unary-expression assignment-operator assignment-expression
-Expr *Parser::parse_assignment() { return parse_conditional(); }
+Expr *Parser::parse_assignment() {
+    auto expr = parse_conditional();
+    if (expr->kind() <= EXPR_UNARY) {
+        if (peek()->is_assign_operator()) {
+            auto tk_type = peek()->get_type();
+            next();
+            auto rhs = parse_assignment();
+            return new Assignment(expr, rhs, tk_type);
+        }
+    }
+    return expr;
+}
 
 // statement needs expression
 Expr *Parser::parse_expr() { return parse_assignment(); }
@@ -809,15 +876,12 @@ Stmt *Parser::parse_stmt() {
 Block *Parser::parse_block(bool in_func) {
     expect('{');
     vector<BlockItem *> items;
-    auto tk = peek();
-    while (tk->get_type() != '}') {
+    while (!try_next('}')) {
         auto item = maybe_decl() ? parse_declaration() : parse_stmt();
         if (item->is_return_stmt() && !in_func)
             error_at(peek()->get_postion(), "return statement found out of a function body.");
         items.push_back(item);
-        tk = peek();
     }
-    expect('}');
     auto result = new Block(_scope, items);
     return result;
 }
@@ -854,6 +918,7 @@ FuncDef *Parser::parse_func_def(const HalfType *base) {
     return new FuncDef(base->token(), func_type, body);
 }
 
+const Type *Parser::parse_type_name() { return nullptr; }
 void Parser::check_name(const InitDeclarator *id, Attribute *attr) {
     auto token = id->halftype()->token();
     auto obj   = _scope->find_var_in_local(token->get_lexeme());
@@ -901,16 +966,24 @@ const Token *Parser::peek() {
     }
     return _lookups.top();
 }
+
+bool Parser::test(int expected) { return peek()->get_type() == expected; }
+
 void Parser::expect(int expected) {
-    if (peek()->get_type() != expected) {
+    if (!test(expected)) {
         error_at(peek()->get_postion(), "expect `%s', but got `%s'",
                  Token(expected, nullptr).get_lexeme(), peek()->get_lexeme());
     }
     next();
 }
 bool Parser::try_next(int expected) {
-    if (peek()->get_type() != expected)
+    if (!test(expected))
         return false;
     next();
     return true;
+}
+
+void Parser::unget() {
+    _lookups.push(_consumed.top());
+    _consumed.pop();
 }

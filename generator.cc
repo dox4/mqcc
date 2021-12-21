@@ -96,9 +96,9 @@ constexpr string_view to_quad[][2] {
 // ConVerT with Truncation Scalar Single/Double-precision floating-point value to Signed Integer
 constexpr string_view f2i[][2] {
     // scalar single to doubleword,  scalar double to doubleword
-    {  "cvttss2siq",                 "cvttsd2siq" },
-    // scalar single to doubleword,  scalar double to doubleword
     {  "cvttss2si",                  "cvttsd2si"  },
+    // scalar single to quadword,  scalar double to quadword
+    {  "cvttss2siq",                 "cvttsd2siq" },
 };
 
 constexpr string_view i2f[][2] {
@@ -432,6 +432,7 @@ void Generator::emit_data() {
 void Generator::emit_text() {}
 
 void Generator::emit_cvt(const Type *from, const Type *to) {
+    debug("from type %s to type %s", from->normalize().c_str(), to->normalize().c_str());
     if (to->is_float()) {
         emit_cvt_to_float(from, to);
     } else {
@@ -440,7 +441,7 @@ void Generator::emit_cvt(const Type *from, const Type *to) {
 }
 void Generator::emit_cvt_to_int(const Type *from, const Type *to) {
     if (from->is_float()) {
-        emit(f2i[to->size() == 4][from->size() == 4], fdest(), idest(to->size()));
+        emit(f2i[to->size() == 8][from->size() == 8], fdest(), idest(to->size()));
     } else {
         emit_promot_int(from);
     }
@@ -761,6 +762,8 @@ void Generator::visit_identifier(Identifier *ident) {
     // debug("obj is null? %d", obj == nullptr);
     auto type = obj->type();
     auto size = type->size();
+    // debug("obj: { name: '%s', type: '%s', size: %d' }", obj->ident()->get_lexeme(),
+    //       type->normalize().c_str(), size);
     if (type->is_float()) {
         emit(fmov(size), simple_addr(obj), fdest());
     } else {
@@ -774,6 +777,9 @@ void Generator::visit_conv(ConvExpr *conv) {
         return;
     emit_cvt(conv->expr()->type(), conv->type());
 }
+
+void Generator::visit_cast(CastExpr *) {}
+void Generator::visit_unary(UnaryExpr *) { unreachable(); }
 
 string Generator::code() const { return _buffer.str(); }
 

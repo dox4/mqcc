@@ -40,6 +40,8 @@ class Visitor {
     virtual void visit_assignment(Assignment *)        = 0;
     virtual void visit_identifier(Identifier *)        = 0;
     virtual void visit_conv(ConvExpr *)                = 0;
+    virtual void visit_cast(CastExpr *)                = 0;
+    virtual void visit_unary(UnaryExpr *)              = 0;
     // statements
     virtual void visit_func_def(FuncDef *fd)             = 0;
     virtual void visit_return(ReturnStmt *rs)            = 0;
@@ -75,6 +77,8 @@ class Generator : public Visitor {
     virtual void visit_assignment(Assignment *);
     virtual void visit_identifier(Identifier *);
     virtual void visit_conv(ConvExpr *);
+    virtual void visit_cast(CastExpr *);
+    virtual void visit_unary(UnaryExpr *);
     // statements
     virtual void visit_func_def(FuncDef *fd);
     virtual void visit_return(ReturnStmt *rs);
