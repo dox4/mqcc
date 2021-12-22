@@ -707,7 +707,10 @@ void Generator::visit_binary(BinaryExpr *e) {
     }
 }
 
-void Generator::visit_return(ReturnStmt *rs) {
+void Generator::visit_goto(Goto *) {}
+void Generator::visit_continue(Continue *) {}
+void Generator::visit_break(Break *) {}
+void Generator::visit_return(Return *rs) {
     visit(rs->expr());
     emit("jmp", _current_fn.ret_label);
 }
@@ -779,7 +782,21 @@ void Generator::visit_conv(ConvExpr *conv) {
 }
 
 void Generator::visit_cast(CastExpr *) {}
-void Generator::visit_unary(UnaryExpr *) { unreachable(); }
+void Generator::visit_unary(UnaryExpr *ue) {
+    // TODO
+    switch (ue->unary_type()) {
+    case TK_INC:
+    case TK_DEC:
+    case '*':
+    case '+':
+    case '-':
+    case '!':
+    case '&':
+    case '~':
+    default:
+        unreachable();
+    }
+}
 
 string Generator::code() const { return _buffer.str(); }
 

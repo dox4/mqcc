@@ -99,6 +99,8 @@ class Parser {
     Expr *parse_expr();
     // block needs statement
     Stmt *parse_stmt();
+    // jump statements
+    Stmt *parse_jump();
     // function definition needs compound statements aka. block
     Block *parse_block(bool);
     FuncDef *parse_func_def(const HalfType *);

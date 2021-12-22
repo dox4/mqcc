@@ -741,11 +741,11 @@ Expr *Parser::parse_unary() {
     if (try_next('+'))
         return new TypedUnaryExpr<'+'>(parse_cast());
     if (try_next('-'))
-        return new TypedUnaryExpr<'~'>(parse_cast());
+        return new TypedUnaryExpr<'-'>(parse_cast());
     if (try_next('!'))
         return new TypedUnaryExpr<'!'>(parse_cast());
-    if (try_next('&'))
-        return new TypedUnaryExpr<'&'>(parse_cast());
+    if (try_next('~'))
+        return new TypedUnaryExpr<'~'>(parse_cast());
     if (try_next(TK_SIZEOF)) {
         if (try_next('(')) {
             auto type = parse_type_name();
@@ -847,7 +847,39 @@ Expr *Parser::parse_assignment() {
 
 // statement needs expression
 Expr *Parser::parse_expr() { return parse_assignment(); }
+
+// jump-statement:
+//    goto identifier ;
+//    continue ;
+//    break ;
+//    return expressionopt ;
+Stmt *Parser::parse_jump() {
+    switch (peek()->get_type()) {
+    case TK_GOTO:
+    case TK_CONTINUE:
+    case TK_BREAK:
+    case TK_RETURN: {
+        next();
+        if (try_next(';')) {
+            return new Return(nullptr);
+        }
+        auto ret = parse_expr();
+        expect(';');
+        return new Return(conv(_cft->return_type(), ret));
+    }
+    default:
+        unreachable();
+    }
+    return nullptr;
+}
 // block needs statement
+// (6.8) statement:
+//   X  labeled-statement
+//   O  compound-statement
+//   O  expression-statement
+//   X  selection-statement
+//   X  iteration-statement
+//   X  jump-statement
 Stmt *Parser::parse_stmt() {
     if (maybe_decl()) {
         return parse_declaration();
@@ -855,15 +887,11 @@ Stmt *Parser::parse_stmt() {
     auto tk = peek();
     // debug_token(tk);
     switch (tk->get_type()) {
-    case TK_RETURN: {
-        next();
-        if (try_next(';')) {
-            return new ReturnStmt(nullptr);
-        }
-        auto ret = parse_expr();
-        expect(';');
-        return new ReturnStmt(conv(_cft->return_type(), ret));
-    }
+    case TK_GOTO:
+    case TK_CONTINUE:
+    case TK_BREAK:
+    case TK_RETURN:
+        return parse_jump();
     default: {
         auto expr = parse_expr();
         expect(';');

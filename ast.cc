@@ -17,9 +17,20 @@ void ExprStmt::accept(Visitor *visitor) { _expr->accept(visitor); }
 
 /// ExprStmt end
 
+// iteration
+
+// iteration
+void While::accept(Visitor *v) { v->visit_while(this); }
+void DoWhile::accept(Visitor *v) { v->visit_do_while(this); }
+void For::accept(Visitor *v) { v->visit_for(this); }
+// jump
+void Goto::accept(Visitor *v) { v->visit_goto(this); }
+void Continue::accept(Visitor *v) { v->visit_continue(this); }
+void Break::accept(Visitor *v) { v->visit_break(this); }
+
 /// ReturnStmt
 
-void ReturnStmt::accept(Visitor *v) { v->visit_return(this); }
+void Return::accept(Visitor *v) { v->visit_return(this); }
 
 /// ReturnStmt end
 

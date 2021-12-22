@@ -43,8 +43,16 @@ class Visitor {
     virtual void visit_cast(CastExpr *)                = 0;
     virtual void visit_unary(UnaryExpr *)              = 0;
     // statements
-    virtual void visit_func_def(FuncDef *fd)             = 0;
-    virtual void visit_return(ReturnStmt *rs)            = 0;
+    virtual void visit_func_def(FuncDef *fd) = 0;
+    // iteration
+    virtual void visit_while(While *)      = 0;
+    virtual void visit_do_while(DoWhile *) = 0;
+    virtual void visit_for(For *)          = 0;
+    // jump
+    virtual void visit_goto(Goto *)                      = 0;
+    virtual void visit_continue(Continue *)              = 0;
+    virtual void visit_break(Break *)                    = 0;
+    virtual void visit_return(Return *)                  = 0;
     virtual void visit_block(Block *)                    = 0;
     virtual void visit_init_declarator(InitDeclarator *) = 0;
     virtual void visit_initializer(Initializer *)        = 0;
@@ -81,7 +89,10 @@ class Generator : public Visitor {
     virtual void visit_unary(UnaryExpr *);
     // statements
     virtual void visit_func_def(FuncDef *fd);
-    virtual void visit_return(ReturnStmt *rs);
+    virtual void visit_goto(Goto *);
+    virtual void visit_continue(Continue *);
+    virtual void visit_break(Break *);
+    virtual void visit_return(Return *rs);
     virtual void visit_block(Block *);
     virtual void visit_init_declarator(InitDeclarator *);
     virtual void visit_initializer(Initializer *);

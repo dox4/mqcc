@@ -336,10 +336,59 @@ class ExprStmt : public Stmt {
     Expr *_expr;
 };
 
-class JumpStmt : public Stmt {};
-class ReturnStmt : public JumpStmt {
+// iteration
+class Iteration : public Stmt {};
+class While : public Iteration {
   public:
-    ReturnStmt(Expr *expr) : _expr(expr) {}
+    explicit While(Expr *cond, Stmt *body) : _cond(cond), _body(body) {}
+    Expr *cond() const noexcept { return _cond; }
+    Stmt *body() const noexcept { return _body; }
+    virtual void accept(Visitor *);
+
+  private:
+    Expr *_cond;
+    Stmt *_body;
+};
+class DoWhile : public While {
+  public:
+    explicit DoWhile(Stmt *body, Expr *cond) : While(cond, body) {}
+    virtual void accept(Visitor *v);
+};
+
+class For : public While {
+  public:
+    explicit For(Stmt *init, Expr *cond, Expr *acc, Stmt *body)
+        : While(cond, body), _init(init), _accumulator(acc) {}
+    Stmt *init() const noexcept { return _init; }
+    Expr *accumulator() const noexcept { return _accumulator; }
+    virtual void accept(Visitor *v);
+
+  private:
+    Stmt *_init;
+    Expr *_accumulator;
+};
+
+class Jump : public Stmt {};
+class Goto : public Jump {
+  public:
+    explicit Goto(const char *label) : _label(label) {}
+    const char *label() const noexcept { return _label; }
+    virtual void accept(Visitor *);
+
+  private:
+    const char *_label;
+};
+class Continue : public Jump {
+  public:
+    virtual void accept(Visitor *);
+};
+class Break : public Jump {
+  public:
+    virtual void accept(Visitor *);
+};
+class Return : public Jump {
+  public:
+    explicit Return(Expr *expr) : _expr(expr) {}
     Expr *expr() const noexcept { return _expr; }
     virtual void accept(Visitor *);
     virtual bool is_return_stmt() const noexcept { return true; }
