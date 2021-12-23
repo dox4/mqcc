@@ -47,7 +47,11 @@ class Parser {
   private:
     Scanner *_scanner;
     Scope *_scope;
-    const FuncType* _cft = nullptr; // current function type, nullptr while not parsing func def
+    const FuncType *_cft = nullptr; // current function type, nullptr while not parsing func def
+    struct SwitchStatus {
+        bool hasdefault = false;
+        std::vector<Expr *> cases{};
+    } *_switch = nullptr;
     std::stack<const Token *> _lookups;
     std::stack<const Token *> _consumed;
     void process_storage_class(Attribute *base);
@@ -62,7 +66,7 @@ class Parser {
     const HalfType *parse_declarator(const Type *);
 
     // init-declarator needs initializer
-    Initializer *parse_initializer(const Type*);
+    Initializer *parse_initializer(const Type *);
     Block *parse_init_declarators(const Type *);
     InitDeclarator *parse_init_declarator(const Type *);
 
@@ -99,8 +103,17 @@ class Parser {
     Expr *parse_expr();
     // block needs statement
     Stmt *parse_stmt();
+    // labeled
+    Stmt *parse_labeled();
     // jump statements
     Stmt *parse_jump();
+    // selection
+    Stmt *parse_if();
+    Stmt *parse_switch();
+    // iteration
+    Stmt *parse_while();
+    Stmt *parse_do_while();
+    Stmt *parse_for();
     // function definition needs compound statements aka. block
     Block *parse_block(bool);
     FuncDef *parse_func_def(const HalfType *);
@@ -108,10 +121,10 @@ class Parser {
     Block *parse_global_variable(const Type *);
 
     // parse type name
-    const Type* parse_type_name();
+    const Type *parse_type_name();
 
     // check name
-    void check_name(const InitDeclarator*, Attribute*);
+    void check_name(const InitDeclarator *, Attribute *);
 
     // test if next token could lead a declaration
     bool maybe_decl();

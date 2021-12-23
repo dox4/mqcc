@@ -96,6 +96,7 @@ class Expr : public AstNode {
     // TODO: should be pure virtual
     virtual const Type *type() const noexcept { return nullptr; };
     virtual bool is_unary() const noexcept { return false; }
+    virtual bool is_int_const() const noexcept { return false; }
 
   private:
     const ExprKind _kind;
@@ -207,10 +208,12 @@ class IntConst : public PrimaryExpr {
         : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::ULong) {}
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept { return _type; }
+    virtual bool is_int_const() const noexcept { return true; }
     const unsigned long value() const noexcept { return _value; }
+    void neg() { _value = -_value; }
 
   private:
-    const unsigned long _value;
+    std::uint64_t _value;
     const BuiltinType *_type;
 };
 
@@ -313,6 +316,36 @@ class BlockItem : public ExtDecl {
 
 class Stmt : public BlockItem {};
 
+// labeled
+class Labeled : public Stmt {
+  public:
+    explicit Labeled(const char *label, Stmt *stmt) : _label(label), _stmt(stmt) {}
+    const char *label() const noexcept { return _label; }
+    Stmt *stmt() const noexcept { return _stmt; }
+
+  private:
+    const char *_label;
+    Stmt *_stmt;
+};
+
+class Case : public Stmt {
+  public:
+    explicit Case(Expr *label, Stmt *stmt) : _label(label), _stmt(stmt) {}
+    Expr *label() const noexcept { return _label; }
+    Stmt *stmt() const noexcept { return _stmt; }
+
+  private:
+    Expr *_label;
+    Stmt *_stmt;
+};
+class Default : public Stmt {
+  public:
+    explicit Default(Stmt *stmt) : _stmt(stmt) {}
+    Stmt *stmt() const noexcept { return _stmt; }
+
+  private:
+    Stmt *_stmt;
+};
 class Block : public Stmt {
   public:
     explicit Block(const Scope *scope, const std::vector<BlockItem *> items)
@@ -326,6 +359,16 @@ class Block : public Stmt {
     std::vector<BlockItem *> _block_items;
 };
 
+class Empty : public Stmt {
+  private:
+    explicit Empty() {}
+    virtual void accept(Visitor *) {}
+    static Empty *_instance;
+
+  public:
+    static Empty *instance();
+};
+
 class ExprStmt : public Stmt {
   public:
     explicit ExprStmt(Expr *expr) : _expr(expr) {}
@@ -334,6 +377,35 @@ class ExprStmt : public Stmt {
 
   private:
     Expr *_expr;
+};
+// selection
+class IfElse : public Stmt {
+  public:
+    explicit IfElse(Expr *cond, Stmt *then, Stmt *otherwise)
+        : _cond(cond), _then(then), _otherwise(otherwise) {}
+    Expr *cond() const noexcept { return _cond; }
+    Stmt *then() const noexcept { return _then; }
+    Stmt *otherwise() const noexcept { return _otherwise; }
+
+  private:
+    Expr *_cond;
+    Stmt *_then, *_otherwise;
+};
+
+class Switch : public Stmt {
+  public:
+    explicit Switch(Expr *expr, Stmt *body, std::vector<Expr *> cases, bool hasdefault)
+        : _expr(expr), _body(body), _cases(cases) {}
+    Expr *expr() const noexcept { return _expr; }
+    Stmt *body() const noexcept { return _body; }
+    const std::vector<Expr *> &cases() const noexcept { return _cases; }
+    bool hasdefault() const noexcept { return _hasdefault; }
+
+  private:
+    bool _hasdefault;
+    Expr *_expr;
+    Stmt *_body;
+    std::vector<Expr *> _cases;
 };
 
 // iteration

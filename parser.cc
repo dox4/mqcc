@@ -7,6 +7,7 @@
 #include "type.h"
 
 #include <cstdlib>
+#include <iterator>
 #include <list>
 #include <vector>
 
@@ -847,6 +848,121 @@ Expr *Parser::parse_assignment() {
 
 // statement needs expression
 Expr *Parser::parse_expr() { return parse_assignment(); }
+// (6.8.1) labeled-statement:
+//      identifier : statement
+//      case constant-expression : statement
+//      default : statement
+Stmt *Parser::parse_labeled() {
+    if (try_next(TK_CASE)) {
+        auto expr = parse_expr();
+        if (!expr->is_int_const())
+            error_at(peek()->get_postion(), "case requires an integer constant");
+        expect(':');
+        auto stmt = parse_stmt();
+        return new Case(expr, stmt);
+    } else if (try_next(TK_DEFAULT)) {
+        expect(':');
+        auto stmt = parse_stmt();
+        return new Default(stmt);
+    }
+    unreachable();
+    return nullptr;
+}
+// (6.8.4) selection-statement:
+//      if ( expression ) statement
+//      if ( expression ) statement else statement
+//      switch ( expression ) statement
+Stmt *Parser::parse_if() {
+    expect(TK_IF);
+    expect('(');
+    auto cond = parse_expr();
+    if (!cond->type()->is_integer()) {
+        cond = conv(&BuiltinType::Int, cond);
+    }
+    expect(')');
+    auto then       = parse_stmt();
+    Stmt *otherwise = Empty::instance();
+    if (try_next(TK_ELSE))
+        otherwise = parse_stmt();
+    return new IfElse(cond, then, otherwise);
+}
+
+Stmt *Parser::parse_switch() {
+    auto backup         = _switch;
+    auto current_switch = SwitchStatus{};
+    _switch             = &current_switch;
+    expect(TK_SWITCH);
+    expect('(');
+    auto cond = parse_expr();
+    if (!cond->type()->is_integer()) {
+        error_at(peek()->get_postion(), "switch requires an integer expression, but found: %s",
+                 cond->type()->normalize().c_str());
+    }
+    expect(')');
+    auto body = parse_stmt();
+    _switch   = backup;
+    return new Switch(cond, body, current_switch.cases, current_switch.hasdefault);
+}
+
+// iteration
+// "while" "(" expression ")" statement
+Stmt *Parser::parse_while() {
+    expect(TK_WHILE);
+    expect('(');
+    auto cond = parse_expr();
+    if (!cond->type()->is_integer()) {
+        cond = conv(&BuiltinType::Int, cond);
+    }
+    expect(')');
+    auto body = parse_stmt();
+    return new While(cond, body);
+}
+// "do" statement "while" "(" expression ")" ";"
+Stmt *Parser::parse_do_while() {
+    expect(TK_DO);
+    auto body = parse_stmt();
+    expect(TK_WHILE);
+    expect('(');
+    auto cond = parse_expr();
+    if (!cond->type()->is_integer()) {
+        cond = conv(&BuiltinType::Int, cond);
+    }
+    expect(')');
+    expect(';');
+    return new DoWhile(body, cond);
+}
+// "for" "(" expression(opt) ";" expression(opt) ";" expression(opt) ")" statement
+// "for" "(" declaration         expression(opt) ";" expression(opt) ")" statement
+Stmt *Parser::parse_for() {
+    expect(TK_FOR);
+    expect('(');
+    // parse init part
+    Stmt *init;
+    if (try_next(';')) {
+        init = Empty::instance();
+    } else if (maybe_decl()) {
+        init = parse_declaration();
+    } else {
+        init = new ExprStmt(parse_expr());
+        expect(';');
+    }
+    // parse cond part;
+    Expr *cond;
+    if (try_next(';')) {
+        cond = nullptr;
+    } else {
+        cond = parse_expr();
+        if (!cond->type()->is_integer()) {
+            cond = conv(&BuiltinType::Int, cond);
+        }
+        expect(';');
+    }
+    // accumulator part
+    auto accumulator = parse_expr();
+    expect(')');
+    auto body = parse_stmt();
+    return new For(init, cond, accumulator, body);
+}
 
 // jump-statement:
 //    goto identifier ;
@@ -856,8 +972,24 @@ Expr *Parser::parse_expr() { return parse_assignment(); }
 Stmt *Parser::parse_jump() {
     switch (peek()->get_type()) {
     case TK_GOTO:
+        next();
+        if (test(TK_NAME)) {
+            auto ident = peek()->get_lexeme();
+            next();
+            expect(';');
+            return new Goto(ident);
+        }
+        // report an error
+        expect(TK_NAME);
+        return nullptr;
     case TK_CONTINUE:
+        next();
+        expect(';');
+        return new Continue();
     case TK_BREAK:
+        next();
+        expect(';');
+        return new Break();
     case TK_RETURN: {
         next();
         if (try_next(';')) {
@@ -887,11 +1019,31 @@ Stmt *Parser::parse_stmt() {
     auto tk = peek();
     // debug_token(tk);
     switch (tk->get_type()) {
+    case ';':
+        next();
+        return Empty::instance();
+    // iteration
+    case TK_DO:
+        return parse_do_while();
+    case TK_WHILE:
+        return parse_while();
+    case TK_FOR:
+        return parse_for();
+    // jump
     case TK_GOTO:
     case TK_CONTINUE:
     case TK_BREAK:
     case TK_RETURN:
         return parse_jump();
+    // labeled
+    case TK_NAME:
+        next();
+        if (try_next(':')) {
+            auto stmt = parse_stmt();
+            return new Labeled(tk->get_lexeme(), stmt);
+        }
+        // if cannot parse a labeled statement, it must be an expression statement
+        unget();
     default: {
         auto expr = parse_expr();
         expect(';');

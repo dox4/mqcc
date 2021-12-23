@@ -11,6 +11,9 @@ void AstNode::accept(Visitor *) { unimplement(); }
 
 /// AstNode end
 
+Empty *Empty::_instance = new Empty();
+Empty *Empty::instance() { return _instance; }
+
 /// ExprStmt
 
 void ExprStmt::accept(Visitor *visitor) { _expr->accept(visitor); }

@@ -58,6 +58,7 @@ class Visitor {
     virtual void visit_initializer(Initializer *)        = 0;
 };
 
+struct IterationState;
 class Generator : public Visitor {
   protected:
     TransUnit *_unit;
@@ -65,6 +66,7 @@ class Generator : public Visitor {
         FuncDef *def;
         std::string ret_label;
     } _current_fn;
+    IterationState *_current_iter = nullptr;
     const Scope *_current_scope;
 
     std::stringstream _buffer;
@@ -89,6 +91,11 @@ class Generator : public Visitor {
     virtual void visit_unary(UnaryExpr *);
     // statements
     virtual void visit_func_def(FuncDef *fd);
+    // iteration
+    virtual void visit_while(While *);
+    virtual void visit_do_while(DoWhile *);
+    virtual void visit_for(For *);
+    // jump
     virtual void visit_goto(Goto *);
     virtual void visit_continue(Continue *);
     virtual void visit_break(Break *);
