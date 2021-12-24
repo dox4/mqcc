@@ -44,6 +44,13 @@ class Visitor {
     virtual void visit_unary(UnaryExpr *)              = 0;
     // statements
     virtual void visit_func_def(FuncDef *fd) = 0;
+    // labeled
+    virtual void visit_labeled(Labeled *) = 0;
+    // virtual void visit_case(Case *)       = 0;
+    // virtual void visit_default(Default *) = 0;
+    // selection
+    virtual void visit_ifelse(IfElse *) = 0;
+    virtual void visit_switch(Switch *) = 0;
     // iteration
     virtual void visit_while(While *)      = 0;
     virtual void visit_do_while(DoWhile *) = 0;
@@ -58,7 +65,6 @@ class Visitor {
     virtual void visit_initializer(Initializer *)        = 0;
 };
 
-struct IterationState;
 class Generator : public Visitor {
   protected:
     TransUnit *_unit;
@@ -66,12 +72,26 @@ class Generator : public Visitor {
         FuncDef *def;
         std::string ret_label;
     } _current_fn;
-    IterationState *_current_iter = nullptr;
+    struct BreakTo {
+        const std::string &label;
+    } *_break_to = nullptr;
+    struct ContinueTo {
+        const std::string &label;
+    } *_cont_to = nullptr;
     const Scope *_current_scope;
 
     std::stringstream _buffer;
     int _offset = 0;
     std::vector<const RoData *> _rodata;
+
+    inline void backup_loop(ContinueTo **ib, BreakTo **bt) {
+        *ib = _cont_to;
+        *bt = _break_to;
+    }
+    inline void restore_loop(ContinueTo *ib, BreakTo *bt) {
+        _cont_to  = ib;
+        _break_to = bt;
+    }
 
   public:
     Generator(TransUnit *unit);
@@ -91,6 +111,13 @@ class Generator : public Visitor {
     virtual void visit_unary(UnaryExpr *);
     // statements
     virtual void visit_func_def(FuncDef *fd);
+    // labeled
+    virtual void visit_labeled(Labeled *);
+    // virtual void visit_case(Case *);
+    // virtual void visit_default(Default *);
+    // selection
+    virtual void visit_ifelse(IfElse *);
+    virtual void visit_switch(Switch *);
     // iteration
     virtual void visit_while(While *);
     virtual void visit_do_while(DoWhile *);

@@ -1,5 +1,6 @@
 #ifndef _MQCC_PARSER_H__
 #define _MQCC_PARSER_H__
+#include "ast.h"
 #include "type.h"
 #include "typedefs.h"
 
@@ -49,8 +50,7 @@ class Parser {
     Scope *_scope;
     const FuncType *_cft = nullptr; // current function type, nullptr while not parsing func def
     struct SwitchStatus {
-        bool hasdefault = false;
-        std::vector<Expr *> cases{};
+        CaseDefaultList labels;
     } *_switch = nullptr;
     std::stack<const Token *> _lookups;
     std::stack<const Token *> _consumed;

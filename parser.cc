@@ -6,9 +6,12 @@
 #include "token.h"
 #include "type.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <iterator>
 #include <list>
+#include <sstream>
+#include <utility>
 #include <vector>
 
 using namespace std;
@@ -848,6 +851,13 @@ Expr *Parser::parse_assignment() {
 
 // statement needs expression
 Expr *Parser::parse_expr() { return parse_assignment(); }
+// make labels while parsing case and default statements
+static string caselabelmaker() {
+    static int label_conter = 0;
+    stringstream s(".LCD_");
+    s << label_conter++;
+    return s.str();
+}
 // (6.8.1) labeled-statement:
 //      identifier : statement
 //      case constant-expression : statement
@@ -857,13 +867,40 @@ Stmt *Parser::parse_labeled() {
         auto expr = parse_expr();
         if (!expr->is_int_const())
             error_at(peek()->get_postion(), "case requires an integer constant");
+        IntConst *expr2 = static_cast<IntConst *>(expr);
+        // gcc limits values of case statements as int type.
+        // now i did not make a difference between signed and unsigned int
+        if (expr2->type()->size() != 4) {
+            auto ival = expr2->value();
+            if (ival > INT32_MAX) {
+                warn_at(peek()->get_postion(), "value of out range, will be truncated.");
+            }
+            int val = static_cast<int>(ival);
+            delete expr2;
+            expr2 = new IntConst(val);
+        }
+        for (auto c : _switch->labels) {
+            if (c.first != nullptr && c.first->value() == expr2->value())
+                error_at(peek()->get_postion(), "duplcated value in case statement.");
+        }
         expect(':');
-        auto stmt = parse_stmt();
-        return new Case(expr, stmt);
-    } else if (try_next(TK_DEFAULT)) {
+        auto stmt  = parse_stmt();
+        auto label = caselabelmaker();
+        auto ret   = new Labeled(label, stmt);
+        _switch->labels.emplace_back(expr2, ret->label());
+        return ret;
+    } else if (test(TK_DEFAULT)) {
+        auto tk = peek();
+        next();
         expect(':');
-        auto stmt = parse_stmt();
-        return new Default(stmt);
+        auto stmt  = parse_stmt();
+        auto label = caselabelmaker();
+        auto ret   = new Labeled(label, stmt);
+        for (auto c : _switch->labels)
+            if (c.first == nullptr)
+                error_at(tk->get_postion(), "duplcated default in switch");
+        _switch->labels.emplace_back(nullptr, ret->label());
+        return ret;
     }
     unreachable();
     return nullptr;
@@ -898,10 +935,16 @@ Stmt *Parser::parse_switch() {
         error_at(peek()->get_postion(), "switch requires an integer expression, but found: %s",
                  cond->type()->normalize().c_str());
     }
+    if (cond->type()->size() < 4) {
+        if (cond->type()->is_signed())
+            cond = conv(&BuiltinType::Int, cond);
+        else
+            cond = conv(&BuiltinType::UInt, cond);
+    }
     expect(')');
     auto body = parse_stmt();
     _switch   = backup;
-    return new Switch(cond, body, current_switch.cases, current_switch.hasdefault);
+    return new Switch(cond, body, current_switch.labels);
 }
 
 // iteration

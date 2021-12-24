@@ -320,32 +320,31 @@ class Stmt : public BlockItem {};
 class Labeled : public Stmt {
   public:
     explicit Labeled(const char *label, Stmt *stmt) : _label(label), _stmt(stmt) {}
-    const char *label() const noexcept { return _label; }
+    explicit Labeled(const std::string label, Stmt *stmt) : _label(label), _stmt(stmt) {}
+    const std::string &label() const noexcept { return _label; }
     Stmt *stmt() const noexcept { return _stmt; }
 
   private:
-    const char *_label;
+    const std::string _label;
     Stmt *_stmt;
 };
 
-class Case : public Stmt {
-  public:
-    explicit Case(Expr *label, Stmt *stmt) : _label(label), _stmt(stmt) {}
-    Expr *label() const noexcept { return _label; }
-    Stmt *stmt() const noexcept { return _stmt; }
-
-  private:
-    Expr *_label;
-    Stmt *_stmt;
-};
-class Default : public Stmt {
-  public:
-    explicit Default(Stmt *stmt) : _stmt(stmt) {}
-    Stmt *stmt() const noexcept { return _stmt; }
-
-  private:
-    Stmt *_stmt;
-};
+// class Case : public Labeled {
+//   public:
+//     explicit Case(const std::string label, IntConst *expr, Stmt *stmt)
+//         : Labeled(label, stmt), _expr(expr) {}
+//     const std::string label() const noexcept { return _label; }
+//     IntConst *expr() const noexcept { return _expr; }
+//
+//   private:
+//     const std::string _label;
+//     IntConst *_expr;
+// };
+// class Default : public Stmt {
+//   public:
+//     explicit Default(Stmt *stmt) : _stmt(stmt) {}
+//     Stmt *_stmt;
+// };
 class Block : public Stmt {
   public:
     explicit Block(const Scope *scope, const std::vector<BlockItem *> items)
@@ -392,20 +391,19 @@ class IfElse : public Stmt {
     Stmt *_then, *_otherwise;
 };
 
+using CaseDefaultList = std::vector<std::pair<IntConst *, const std::string &>>;
 class Switch : public Stmt {
   public:
-    explicit Switch(Expr *expr, Stmt *body, std::vector<Expr *> cases, bool hasdefault)
-        : _expr(expr), _body(body), _cases(cases) {}
+    explicit Switch(Expr *expr, Stmt *body, CaseDefaultList labels)
+        : _expr(expr), _body(body), _labels(labels) {}
     Expr *expr() const noexcept { return _expr; }
     Stmt *body() const noexcept { return _body; }
-    const std::vector<Expr *> &cases() const noexcept { return _cases; }
-    bool hasdefault() const noexcept { return _hasdefault; }
+    const CaseDefaultList &labels() const noexcept { return _labels; }
 
   private:
-    bool _hasdefault;
     Expr *_expr;
     Stmt *_body;
-    std::vector<Expr *> _cases;
+    CaseDefaultList _labels;
 };
 
 // iteration

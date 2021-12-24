@@ -109,10 +109,6 @@ constexpr string_view i2f[][2] {
 };
 // clang-format on
 
-struct IterationState {
-    const string &begin, &end;
-};
-
 class LabelMaker {
     const char *_flag;
     int _cnt = 0;
@@ -134,6 +130,7 @@ static LabelMaker branch_label     = LabelMaker("B");
 static LabelMaker iter_begin_label = LabelMaker("IB");
 static LabelMaker iter_end_label   = LabelMaker("IE");
 static LabelMaker test_label       = LabelMaker("T");
+static LabelMaker switch_end_label = LabelMaker("SE");
 
 static const string userlabel(const string label) {
     // self defined
@@ -719,29 +716,80 @@ void Generator::visit_binary(BinaryExpr *e) {
     }
 }
 
+// labeled
+void Generator::visit_labeled(Labeled *l) {
+    emit_label(l->label());
+    visit(l->stmt());
+}
+// void Generator::visit_case(Case *c) {}
+// void Generator::visit_default(Default *def) {}
+// selection
+void Generator::visit_ifelse(IfElse *ifelse) {}
+void Generator::visit_switch(Switch *s) {
+    auto backup   = _break_to;
+    auto se_label = switch_end_label();
+    auto breakto  = BreakTo{se_label};
+    _break_to     = &breakto;
+    // emit code
+    visit(s->expr());
+    for (auto cd : s->labels()) {
+        // default label
+        if (cd.first == nullptr) {
+            emit("jmp", cd.second);
+        }
+        // case label
+        else {
+            emit("movl", cd.first->value(), r11d);
+            emit("compl", eax, r11d);
+            emit("je", cd.second);
+        }
+    }
+    emit("jmp", se_label);
+    visit(s->body());
+    emit_label(se_label);
+    _break_to = backup;
+}
+// iteration
 void Generator::visit_while(While *w) {
+    // backup current iteration state
+    ContinueTo *pib;
+    BreakTo *pbt;
+    backup_loop(&pib, &pbt);
+
+    // create new labels used in this scope
     auto bl = iter_begin_label();
     auto el = iter_end_label();
-    // backup current iteration state
-    auto backup = _current_iter;
-    IterationState s{bl, el};
-    _current_iter = &s;
+    BreakTo bt{el};
+    ContinueTo ib{bl};
+
+    // assign new temporary labels
+    restore_loop(&ib, &bt);
+
+    // emit code
     emit_label(bl);
     visit(w->cond());
     emit("jz", el);
     visit(w->body());
     emit("jmp", bl);
     emit_label(el);
+
     // restore iteration state
-    _current_iter = backup;
+    restore_loop(pib, pbt);
 }
 void Generator::visit_do_while(DoWhile *dw) {
+    // backup current iteration state
+    ContinueTo *pib;
+    BreakTo *pbt;
+    backup_loop(&pib, &pbt);
+
+    // create new labels used in this scope
     auto bl = iter_begin_label();
     auto el = iter_end_label();
-    // backup current iteration state
-    auto backup = _current_iter;
-    IterationState s{bl, el};
-    _current_iter = &s;
+    BreakTo bt{el};
+    ContinueTo ib{bl};
+
+    // assign new temporary labels
+    restore_loop(&ib, &bt);
 
     emit_label(bl);
     visit(dw->body());
@@ -750,16 +798,24 @@ void Generator::visit_do_while(DoWhile *dw) {
     emit_label(el);
 
     // restore iteration state
-    _current_iter = backup;
+    restore_loop(pib, pbt);
 }
 void Generator::visit_for(For *f) {
+    // backup current iteration state
+    ContinueTo *pib;
+    BreakTo *pbt;
+    backup_loop(&pib, &pbt);
+
+    // create new labels used in this scope
     auto bl = iter_begin_label();
     auto el = iter_end_label();
-    // backup current iteration state
-    auto backup = _current_iter;
-    IterationState s{bl, el};
-    _current_iter = &s;
+    BreakTo bt{el};
+    ContinueTo ib{bl};
 
+    // assign new temporary labels
+    restore_loop(&ib, &bt);
+
+    // emit code
     visit(f->init());
     emit_label(bl);
     if (f->cond() != nullptr) {
@@ -772,19 +828,12 @@ void Generator::visit_for(For *f) {
     emit("jmp", bl);
     emit_label(el);
 
-    // restore iteration state
-    _current_iter = backup;
+    // restore loop status
+    restore_loop(pib, pbt);
 }
-void Generator::visit_goto(Goto *g) {
-    emit("jmp", userlabel(g->label()));
-}
-void Generator::visit_continue(Continue *c) { emit("jmp", _current_iter->begin); }
-void Generator::visit_break(Break *b) {
-    // iteration
-    if (_current_iter != nullptr)
-        emit("jmp", _current_iter->end);
-    // switch
-}
+void Generator::visit_goto(Goto *g) { emit("jmp", userlabel(g->label())); }
+void Generator::visit_continue(Continue *c) { emit("jmp", _cont_to->label); }
+void Generator::visit_break(Break *b) { emit("jmp", _break_to->label); }
 void Generator::visit_return(Return *rs) {
     visit(rs->expr());
     emit("jmp", _current_fn.ret_label);
