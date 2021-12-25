@@ -46,12 +46,17 @@ class Type {
     virtual std::string_view name() const { return _name; }
     virtual bool is_void() const noexcept { return false; }
     virtual bool is_arithmetic() const noexcept { return false; }
+    virtual bool is_scalar() const noexcept { return is_arithmetic() || is_pointer(); }
     virtual bool is_float() const noexcept { return false; }
     virtual bool is_integer() const noexcept { return false; }
     virtual bool is_signed() const noexcept { return false; }
     virtual bool is_pointer() const noexcept { return false; }
     virtual bool equals_to(const Type *other) const { return this == other; }
     virtual bool is_compitable_with(const Type *other) const { return this == other; }
+    virtual const Type *point_to() const {
+        unimplement();
+        return nullptr;
+    }
     // virtual const int align() const = 0;
     // virtual bool is_atomic() const  = 0;
 };
@@ -157,7 +162,7 @@ class BuiltinType : public Type {
 class PointerType : public Type {
   public:
     explicit PointerType(const Type *point_to) : Type(TY_PTR, 8, ""), _point_to(point_to) {}
-    const Type *point_to() const { return _point_to; }
+    virtual const Type *point_to() const { return _point_to; }
     virtual const std::string normalize() const { return _point_to->normalize() + "*"; }
     virtual const int size() const noexcept { return 8; };
     virtual bool is_pointer() const noexcept { return true; }

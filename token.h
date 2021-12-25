@@ -127,7 +127,7 @@ class Token {
     explicit Token(int tp, const char *literal, const SourcePosition *);
 
     const char *get_lexeme() const noexcept { return _lexeme; }
-    const SourcePosition *get_postion() const noexcept { return _sp; }
+    const SourcePosition *get_position() const noexcept { return _sp; }
     bool is_ignored() const noexcept;
     bool is_type_token() const noexcept;
     bool is_storage_class() const noexcept;

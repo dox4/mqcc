@@ -4,6 +4,7 @@
 #include <stdarg.h>
 
 // forward declaration
+class Type;
 class Token;
 class SourcePosition;
 // forward declaration end
@@ -43,8 +44,9 @@ inline void error_unexpected(char expected, char actual) {
     } while (false)
 
 void error(const char *fmt, ...);
-void error_at(const SourcePosition *sp, const char *fmt, ...);
-void warn_at(const SourcePosition *sp, const char *fmt, ...);
+void error_at(const Token *, const char *fmt, ...);
+void error_invalid_oprands(const Token *tok, const Type *t1, const Type *t2);
+void warn_at(const Token *, const char *fmt, ...);
 void warn_token(const Token *, const char *, ...);
 #define unreachable() (error("error at %s:%d, unreachable code.", __FILE__, __LINE__))
 #define unimplement() (error("umimplemented function invoked: %s", __func__))

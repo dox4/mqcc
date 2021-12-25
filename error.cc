@@ -1,5 +1,6 @@
 #include "error.h"
 #include "token.h"
+#include "type.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -14,7 +15,13 @@ void error(const char *fmt, ...) {
     exit(1);
 }
 
-void error_at(const SourcePosition *sp, const char *fmt, ...) {
+void error_invalid_oprands(const Token *tok, const Type *t1, const Type *t2) {
+    error_at(tok, "invalid oprands for binary oprator (%s): `%s` and `%s`.", tok->get_lexeme(),
+             t1->normalize().c_str(), t2->normalize().c_str());
+}
+
+void error_at(const Token *tok, const char *fmt, ...) {
+    auto sp = tok->get_position();
     int indent =
         fprintf(stderr, "%s:%d:%d:", sp->get_file_name(), sp->get_line(), sp->get_column());
     fprintf(stderr, "%s", sp->current_line());
@@ -27,7 +34,8 @@ void error_at(const SourcePosition *sp, const char *fmt, ...) {
     exit(1);
 }
 
-void warn_at(const SourcePosition *sp, const char *fmt, ...) {
+void warn_at(const Token *tok, const char *fmt, ...) {
+    auto sp = tok->get_position();
     int indent =
         fprintf(stderr, "%s:%d:%d:", sp->get_file_name(), sp->get_line(), sp->get_column());
     fprintf(stderr, "%s", sp->current_line());
@@ -41,10 +49,10 @@ void warn_at(const SourcePosition *sp, const char *fmt, ...) {
 
 void warn_token(const Token *tk, const char *fmt, ...) {
     do {
-        auto sp = tk->get_postion();
-        int len = strlen(tk->get_lexeme());
-        int indent =
-            fprintf(stderr, "%s:%d:%d:", sp->get_file_name(), sp->get_line(), sp->get_column() - len);
+        auto sp    = tk->get_position();
+        int len    = strlen(tk->get_lexeme());
+        int indent = fprintf(stderr, "%s:%d:%d:", sp->get_file_name(), sp->get_line(),
+                             sp->get_column() - len);
         fprintf(stderr, "%s", sp->current_line());
         fprintf(stderr, "%*s", indent + sp->get_column() - len - 1, "");
         fprintf(stderr, "^ ");

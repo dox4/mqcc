@@ -97,6 +97,7 @@ class Expr : public AstNode {
     virtual const Type *type() const noexcept { return nullptr; };
     virtual bool is_unary() const noexcept { return false; }
     virtual bool is_int_const() const noexcept { return false; }
+    virtual const Token *token() const { return nullptr; }
 
   private:
     const ExprKind _kind;
@@ -110,6 +111,7 @@ class CondExpr : public Expr {
     const Expr *cond() const noexcept { return _cond; }
     const Expr *iftrue() const noexcept { return _iftrue; }
     const Expr *iffalse() const noexcept { return _iffalse; }
+    virtual const Token *token() const { return _cond->token(); }
 
   private:
     const Expr *_cond, *_iftrue, *_iffalse;
@@ -117,13 +119,16 @@ class CondExpr : public Expr {
 
 class BinaryExpr : public Expr {
   public:
-    BinaryExpr(ExprKind kind, Expr *lhs, Expr *rhs) : Expr(kind), _lhs(lhs), _rhs(rhs) {}
+    BinaryExpr(ExprKind kind, const Token *token, Expr *lhs, Expr *rhs)
+        : Expr(kind), _token(token), _lhs(lhs), _rhs(rhs) {}
     Expr *lhs() const noexcept { return _lhs; }
     Expr *rhs() const noexcept { return _rhs; }
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept;
+    virtual const Token *token() const { return _token; }
 
   private:
+    const Token *_token;
     Expr *_lhs, *_rhs;
 };
 
@@ -144,6 +149,7 @@ class FuncCallExpr : public PostfixExpr {
     Expr *left() const noexcept { return _left; }
     std::vector<Expr *> args() const noexcept { return _args; }
     virtual const Type *type() const noexcept;
+    virtual const Token *token() const { return _left->token(); }
 
   private:
     Expr *_left;
@@ -165,14 +171,14 @@ class PrimaryExpr : public Expr {
 };
 class Identifier : public PrimaryExpr {
   public:
-    explicit Identifier(const char *name, const Scope *scope)
-        : PrimaryExpr(EXPR_IDENT), _name(name), _scope(scope) {}
-    const char *get_value() const noexcept { return _name; }
+    explicit Identifier(const Token *token, const Scope *scope)
+        : PrimaryExpr(EXPR_IDENT), _token(token), _scope(scope) {}
+    const char *get_value() const noexcept { return _token->get_lexeme(); }
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept;
 
   private:
-    const char *_name;
+    const Token *_token;
     const Scope *_scope;
 };
 
@@ -183,29 +189,40 @@ class Identifier : public PrimaryExpr {
 //   character-constant
 class FloatConst : public PrimaryExpr {
   public:
-    explicit FloatConst(double val, bool isfloat)
-        : PrimaryExpr(EXPR_FLOAT), _value(val),
-          _type(isfloat ? &BuiltinType::Float : &BuiltinType::Double) {}
+    //     explicit FloatConst(double val, bool isfloat)
+    //         : PrimaryExpr(EXPR_FLOAT), _value(val),
+    //           _type(isfloat ? &BuiltinType::Float : &BuiltinType::Double) {}
+    explicit FloatConst(const Token *token) : PrimaryExpr(EXPR_FLOAT), _token(token) {
+        char *end;
+        double dval = std::strtod(token->get_lexeme(), &end);
+        _value      = dval;
+        _type       = *end == 'f' ? &BuiltinType::Float : &BuiltinType::Double;
+    }
     const double value() const noexcept { return _value; }
     virtual const Type *type() const noexcept { return _type; }
+    virtual const Token *token() const { return _token; }
     virtual void accept(Visitor *);
 
   private:
     double _value;
+    const Token *_token;
     const Type *_type;
 };
 class IntConst : public PrimaryExpr {
   public:
-    explicit IntConst(int val) : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Int) {}
-    explicit IntConst(unsigned int val)
-        : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::UInt) {}
-    explicit IntConst(long val) : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Long) {}
-    explicit IntConst(unsigned long val)
-        : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::ULong) {}
-    explicit IntConst(long long val)
-        : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Long) {}
-    explicit IntConst(unsigned long long val)
-        : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::ULong) {}
+    // explicit IntConst(int val) : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Int) {}
+    // explicit IntConst(unsigned int val)
+    //     : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::UInt) {}
+    // explicit IntConst(long val) : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Long)
+    // {} explicit IntConst(unsigned long val)
+    //     : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::ULong) {}
+    // explicit IntConst(long long val)
+    //     : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Long) {}
+    // explicit IntConst(unsigned long long val)
+    //     : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::ULong) {}
+    explicit IntConst(const Token *token);
+    explicit IntConst(const Token *token, int ival)
+        : PrimaryExpr(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::Int) {}
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept { return _type; }
     virtual bool is_int_const() const noexcept { return true; }
@@ -214,18 +231,19 @@ class IntConst : public PrimaryExpr {
 
   private:
     std::uint64_t _value;
-    const BuiltinType *_type;
+    const Token *_token;
+    const Type *_type;
 };
 
 class StringLiteral : public PrimaryExpr {
   public:
-    explicit StringLiteral(const char *literal) : PrimaryExpr(EXPR_STR), _value(literal){};
-    const char *get_value() const noexcept { return _value; }
+    explicit StringLiteral(const Token *literal) : PrimaryExpr(EXPR_STR), _token(literal){};
+    const char *get_value() const noexcept { return _token->get_lexeme(); }
     virtual void accept(Visitor *) {}
     // virtual const Type *type() const noexcept;
 
   private:
-    const char *_value;
+    const Token *_token;
 };
 
 class UnaryExpr : public Expr {

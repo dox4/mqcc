@@ -3,7 +3,31 @@
 #include "generator.h"
 #include "token.h"
 #include "type.h"
+#include <cctype>
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
 using namespace std;
+
+static const Type *infer_type_by_postfix(const char *end) {
+    if (*end == '\0') {
+        return &BuiltinType::Int;
+    }
+    size_t len;
+    if ((len = strlen(end)) > 3)
+        return nullptr;
+    char *dup = strndup(end, len);
+    for (size_t idx = 0; dup[idx]; idx++)
+        dup[idx] = tolower(dup[idx]);
+
+    if (strcmp(dup, "ull") || strcmp(dup, "ul"))
+        return &BuiltinType::ULong;
+    if (strcmp(dup, "ll") || strcmp(dup, "l"))
+        return &BuiltinType::Long;
+    if (strcmp(dup, "u"))
+        return &BuiltinType::UInt;
+    return nullptr;
+}
 
 /// AstNode
 
@@ -53,12 +77,22 @@ void FloatConst::accept(Visitor *v) { v->visit_float_const(this); }
 
 /// IntConst
 
+IntConst::IntConst(const Token *token) : PrimaryExpr(EXPR_INT), _token(token) {
+    char *end;
+    // got the value and assign
+    auto nval = std::strtoull(_token->get_lexeme(), &end, 10);
+    if (errno == ERANGE)
+        warn_at(_token, "integer number overflow.");
+    _value = nval;
+    if ((_type  = infer_type_by_postfix(end)) == nullptr)
+        error_at(token, "invalid postfix for integer constant.");
+}
 void IntConst::accept(Visitor *v) { v->visit_int_const(this); }
 
 /// IntConst end
 /// Identifier
 void Identifier::accept(Visitor *v) { v->visit_identifier(this); }
-const Type *Identifier::type() const noexcept { return _scope->find_var_in_local(_name)->type(); }
+const Type *Identifier::type() const noexcept { return _scope->find_var_in_local(_token->get_lexeme())->type(); }
 
 /// Identifier end
 

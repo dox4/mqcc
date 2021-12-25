@@ -40,7 +40,7 @@ static ExprKind get_expr_kind(const Token* tok) {
         case TK_LAND   : return EXPR_LAND;    // &&
         case TK_LOR    : return EXPR_LOR;     // ||
         default:
-            error_at(tok->get_postion(), "%s is not a binary token",  tok->get_lexeme());
+            error_at(tok, "%s is not a binary token",  tok->get_lexeme());
     }
     unreachable();
     // no warning
@@ -62,6 +62,79 @@ enum BOP {
     OP_MUL,
     OP_NOT_VALID,
 };
+
+static void check_scalar(const Type *type, const Token *tok) {
+    if (!type->is_scalar())
+        error_at(tok, "expression requires scalar type here.");
+}
+
+static void check_type_for_binary(Expr *lhs, Expr *rhs, const Token *tok) {
+#define isarith(t) (t->is_arithmetic())
+#define isint(t) (t->is_integer())
+#define isptr(t) (t->is_pointer())
+#define bothint(t1, t2) (isint(t1) && (isint(t2)))
+#define botharith(t1, t2) ((isarith(t1)) && (isarith(t2)))
+#define bothptr(t1, t2) ((isptr(t1) && isptr(t2)))
+    auto ltype = lhs->type(), rtype = rhs->type();
+    switch (tok->get_type()) {
+    case TK_STAR:  // *
+    case TK_SLASH: // /
+        if (!botharith(ltype, rtype))
+            error_invalid_oprands(tok, lhs->type(), rhs->type());
+        break;
+    case TK_MOD:    // %
+    case TK_LSHIFT: // <<
+    case TK_RSHIFT: // >>
+    case TK_BAND:   // &
+    case TK_XOR:    // ^
+    case TK_BOR:    // |
+        if (!bothint(ltype, rtype))
+            error_invalid_oprands(tok, lhs->type(), rhs->type());
+        break;
+    case TK_PLUS: // +
+        if (!(botharith(ltype, rtype) || (isint(ltype) && isptr(rtype)) ||
+              (isptr(ltype) && isint(rtype))))
+            error_invalid_oprands(tok, lhs->type(), rhs->type());
+        break;
+    case TK_MINUS: // -
+        if (!(botharith(ltype, rtype) || (isptr(ltype) && isint(rtype))))
+            error_invalid_oprands(tok, lhs->type(), rhs->type());
+        break;
+    case TK_LESS:    // <
+    case TK_GREATER: // >
+    case TK_LEQUAL:  // <=
+    case TK_GEQUAL:  // >=
+        if (!(botharith(ltype, rtype) || bothptr(ltype, rtype)))
+            error_invalid_oprands(tok, lhs->type(), rhs->type());
+        if (bothptr(ltype, rtype) && ltype->point_to()->is_compitable_with(rtype->point_to()))
+            warn_at(tok, "comparison of distinct pointer types ('%s' and '%s'.",
+                    ltype->normalize().c_str(), rtype->normalize().c_str());
+        break;
+    case TK_EQUAL:  // ==
+    case TK_NEQUAL: // !=
+        if (!((botharith(ltype, rtype)) || bothptr(ltype, rtype)))
+            error_invalid_oprands(tok, lhs->type(), rhs->type());
+        if (bothptr(ltype, rtype)) {
+            if (!ltype->point_to()->equals_to(ltype->point_to()))
+                warn_at(tok, "comparison of distinct pointer types ('%s' and '%s'.",
+                        ltype->normalize().c_str(), rtype->normalize().c_str());
+        }
+        break;
+    case TK_LAND: // &&
+    case TK_LOR:  // ||
+        if (!(ltype->is_scalar() && rtype->is_scalar()))
+            error_invalid_oprands(tok, lhs->type(), rhs->type());
+        break;
+    default:
+        unreachable();
+    }
+#undef isarith
+#undef isint
+#undef isptr
+#undef bothint
+#undef botharith
+#undef bothptr
+}
 
 static int get_priority(int tok_type) {
     switch (tok_type) {
@@ -144,14 +217,14 @@ TransUnit *Parser::parse() {
             } else {
                 auto vt = var->type();
                 if (!vt->equals_to(prefix->type())) {
-                    error_at(prefix->token()->get_postion(),
+                    error_at(prefix->token(),
                              "type redefined conflict: '%s' vs '%s'", vt->normalize().c_str(),
                              prefix->type()->normalize().c_str());
                 }
                 if (var->is_function()) {
                     if (test('{')) {
                         if (var->is_defined())
-                            error_at(prefix->token()->get_postion(), "function redefined.");
+                            error_at(prefix->token(), "function redefined.");
                         current = parse_func_def(prefix);
                     } else if (try_next(';')) {
                         // _scope->push_type(prefix->token()->get_lexeme(), prefix->type());
@@ -173,7 +246,7 @@ void Parser::process_storage_class(Attribute *attr) {
     // debug("start function: %s", __func__);
     auto tk = peek();
 #define error_dup_token(tk)                                                                        \
-    error_at(tk->get_postion(), "storage class %s has already been specified.", tk->get_lexeme())
+    error_at(tk, "storage class %s has already been specified.", tk->get_lexeme())
     switch (tk->get_type()) {
     case TK_EXTERN: {
         if (attr->is_extern)
@@ -208,7 +281,7 @@ void Parser::process_storage_class(Attribute *attr) {
     }
     if (attr->is_typedef &&
         (attr->is_extern || attr->is_inline || attr->is_static || attr->is_thread_local))
-        error_at(tk->get_postion(), "typedef may not work with extern, inline, "
+        error_at(tk, "typedef may not work with extern, inline, "
                                     "static, or some storage class else.");
     next();
 #undef error_dup_toke
@@ -340,7 +413,7 @@ type_counter_t Parser::process_builtin(type_counter_t type_counter) {
     }
 
     default:
-        error_at(tk->get_postion(), "malformed type.");
+        error_at(tk, "malformed type.");
     }
     unreachable();
     // no warning
@@ -410,7 +483,7 @@ const Type *Parser::parse_declaration_specifiers(Attribute *attr) {
             type_counter = process_builtin(type_counter);
         } else if (tk->is_storage_class()) {
             // if (attr == nullptr)
-            //     error_at(tk->get_postion(), "storage class is not allowed here.");
+            //     error_at(tk, "storage class is not allowed here.");
             process_storage_class(attr);
         } else if (tk->get_type() == TK_NAME) {
             // process user-define types or variable name
@@ -419,7 +492,7 @@ const Type *Parser::parse_declaration_specifiers(Attribute *attr) {
             // find type
             if (t != nullptr) {
                 if (type_counter != 0) {
-                    error_at(tk->get_postion(),
+                    error_at(tk,
                              "user-defined type should not follow up builtin types.");
                 }
                 return t->type();
@@ -501,7 +574,7 @@ const HalfType *Parser::parse_direct_declarator(const Type *base) {
         expect(')');
         name = prefix->token();
     } else {
-        error_at(tk->get_postion(), "unexpected token while parsing direct declarator");
+        error_at(tk, "unexpected token while parsing direct declarator");
     }
     next();
     tk = peek();
@@ -590,57 +663,12 @@ Decl *Parser::parse_decl(type_counter_t spec, Declarator *declarator) { return n
 Expr *Parser::process_const() {
     auto tk = peek();
     if (tk->get_type() == TK_FNUMBER) {
-        char *end;
-        double dval = std::strtod(tk->get_lexeme(), &end);
         next();
-        return new FloatConst(dval, *end == 'f');
+        return new FloatConst(tk);
     }
     if (tk->get_type() == TK_INUMBER) {
-        char *end;
-        auto nval = std::strtoull(tk->get_lexeme(), &end, 10);
-        if (errno == ERANGE)
-            warn_at(tk->get_postion(), "integer number overflow.");
         next();
-
-        bool is_unsigned = false, is_long = false, is_long_long = false;
-
-        // integer literal without postfix
-        // will be stored as `int` value
-        if (*end == '\0') {
-            int ival = nval;
-            return new IntConst(ival);
-        }
-        end++;
-        if (*end == 'u' || *end == 'L') {
-            is_unsigned = true;
-            end++;
-        }
-        if (*end == 'l' || *end == 'L') {
-            end++;
-            if (*end == 'l' || *end == 'L') {
-                is_long_long = true;
-                end++;
-            } else
-                is_long = true;
-        }
-        mqassert(*end == '\0', "number literal has trailing character(s).");
-        if (is_unsigned) {
-            if (is_long_long) {
-                return new IntConst(nval);
-            } else if (is_long) {
-                return new IntConst(static_cast<unsigned long>(nval));
-            } else {
-                return new IntConst(static_cast<unsigned>(nval));
-            }
-        } else {
-            if (is_long_long) {
-                return new IntConst(static_cast<long long>(nval));
-            } else if (is_long) {
-                return new IntConst(static_cast<long>(nval));
-            } else {
-                return new IntConst(static_cast<int>(nval));
-            }
-        }
+        return new IntConst(tk);
     }
     unreachable();
     return nullptr;
@@ -664,7 +692,7 @@ Expr *Parser::parse_primary() {
     case TK_STRING: {
         auto stok = tk;
         next();
-        return new StringLiteral(stok->get_lexeme());
+        return new StringLiteral(stok);
     }
     case '(': {
         next();
@@ -675,7 +703,7 @@ Expr *Parser::parse_primary() {
     case TK__GENERIC:
         return parse_generic();
     default:
-        error_at(tk->get_postion(), "unexpected token");
+        error_at(tk, "unexpected token");
     }
     // no warning
     return nullptr;
@@ -683,7 +711,7 @@ Expr *Parser::parse_primary() {
 Expr *Parser::parse_ident() {
     auto tk = peek();
     next();
-    return new Identifier(tk->get_lexeme(), _scope);
+    return new Identifier(tk, _scope);
 }
 Expr *Parser::parse_constant() { return nullptr; }
 Expr *Parser::parse_generic() { return nullptr; }
@@ -750,17 +778,19 @@ Expr *Parser::parse_unary() {
         return new TypedUnaryExpr<'!'>(parse_cast());
     if (try_next('~'))
         return new TypedUnaryExpr<'~'>(parse_cast());
-    if (try_next(TK_SIZEOF)) {
+    if (test(TK_SIZEOF)) {
+        auto tok = peek();
+        next();
         if (try_next('(')) {
             auto type = parse_type_name();
             if (type) {
                 expect(')');
-                return new IntConst(type->size());
+                return new IntConst(tok, type->size());
             }
             unget();
         }
         auto expr = parse_unary();
-        return new IntConst(expr->type()->size());
+        return new IntConst(tok, expr->type()->size());
     }
     return parse_postfix();
 }
@@ -811,11 +841,12 @@ Expr *Parser::parse_binary(int bop) {
         auto right = parse_binary(bop + 1);
         // combine lhs and rhs, the result will be new lhs within the binary expr
         auto ek = get_expr_kind(op); // ExprKind
+        check_type_for_binary(left, right, op);
         if (left->type()->is_arithmetic() && right->type()->is_arithmetic()) {
             auto ntype = uac(left->type(), right->type());
-            left       = new BinaryExpr(ek, conv(ntype, left), conv(ntype, right));
+            left       = new BinaryExpr(ek, op, conv(ntype, left), conv(ntype, right));
         } else {
-            left = new BinaryExpr(ek, left, right);
+            left = new BinaryExpr(ek, op, left, right);
         }
         op       = peek();
         priority = get_priority(op->get_type());
@@ -866,22 +897,22 @@ Stmt *Parser::parse_labeled() {
     if (try_next(TK_CASE)) {
         auto expr = parse_expr();
         if (!expr->is_int_const())
-            error_at(peek()->get_postion(), "case requires an integer constant");
+            error_at(expr->token(), "case requires an integer constant");
         IntConst *expr2 = static_cast<IntConst *>(expr);
         // gcc limits values of case statements as int type.
         // now i did not make a difference between signed and unsigned int
         if (expr2->type()->size() != 4) {
             auto ival = expr2->value();
             if (ival > INT32_MAX) {
-                warn_at(peek()->get_postion(), "value of out range, will be truncated.");
+                warn_at(expr2->token(), "value of out range, will be truncated.");
             }
-            int val = static_cast<int>(ival);
-            delete expr2;
-            expr2 = new IntConst(val);
+            // int val = static_cast<int>(ival);
+            // delete expr2;
+            // expr2 = new IntConst(val);
         }
         for (auto c : _switch->labels) {
             if (c.first != nullptr && c.first->value() == expr2->value())
-                error_at(peek()->get_postion(), "duplcated value in case statement.");
+                error_at(expr2->token(), "duplcated value in case statement.");
         }
         expect(':');
         auto stmt  = parse_stmt();
@@ -898,7 +929,7 @@ Stmt *Parser::parse_labeled() {
         auto ret   = new Labeled(label, stmt);
         for (auto c : _switch->labels)
             if (c.first == nullptr)
-                error_at(tk->get_postion(), "duplcated default in switch");
+                error_at(tk, "duplcated default in switch");
         _switch->labels.emplace_back(nullptr, ret->label());
         return ret;
     }
@@ -913,6 +944,7 @@ Stmt *Parser::parse_if() {
     expect(TK_IF);
     expect('(');
     auto cond = parse_expr();
+    check_scalar(cond->type(), nullptr);
     if (!cond->type()->is_integer()) {
         cond = conv(&BuiltinType::Int, cond);
     }
@@ -932,7 +964,7 @@ Stmt *Parser::parse_switch() {
     expect('(');
     auto cond = parse_expr();
     if (!cond->type()->is_integer()) {
-        error_at(peek()->get_postion(), "switch requires an integer expression, but found: %s",
+        error_at(cond->token(), "switch requires an integer expression, but found: %s",
                  cond->type()->normalize().c_str());
     }
     if (cond->type()->size() < 4) {
@@ -1049,12 +1081,12 @@ Stmt *Parser::parse_jump() {
 }
 // block needs statement
 // (6.8) statement:
-//   X  labeled-statement
+//   O  labeled-statement
 //   O  compound-statement
 //   O  expression-statement
-//   X  selection-statement
-//   X  iteration-statement
-//   X  jump-statement
+//   O  selection-statement
+//   O  iteration-statement
+//   O  jump-statement
 Stmt *Parser::parse_stmt() {
     if (maybe_decl()) {
         return parse_declaration();
@@ -1102,7 +1134,7 @@ Block *Parser::parse_block(bool in_func) {
     while (!try_next('}')) {
         auto item = maybe_decl() ? parse_declaration() : parse_stmt();
         if (item->is_return_stmt() && !in_func)
-            error_at(peek()->get_postion(), "return statement found out of a function body.");
+            error_at(peek(), "return statement found out of a function body.");
         items.push_back(item);
     }
     auto result = new Block(_scope, items);
@@ -1153,19 +1185,19 @@ void Parser::check_name(const InitDeclarator *id, Attribute *attr) {
     }
     // check if already defined
     if (obj->is_defined() && id->is_initialized()) {
-        error_at(token->get_postion(), "redefined variable.");
+        error_at(token, "redefined variable.");
     }
     // check if the same type
     if (!obj->type()->equals_to(id->halftype()->type())) {
-        error_at(token->get_postion(), "redeclared name with different type.");
+        error_at(token, "redeclared name with different type.");
     }
     // check linkage
     if (!attr->equals_to(obj->attr()) || !attr->is_extern) {
-        error_at(token->get_postion(), "redeclared with non-extern.");
+        error_at(token, "redeclared with non-extern.");
     }
     // check extern
     if (attr->is_extern && id->is_initialized()) {
-        error_at(token->get_postion(), "declared with both extern and initializer.");
+        error_at(token, "declared with both extern and initializer.");
     }
 }
 
@@ -1194,7 +1226,7 @@ bool Parser::test(int expected) { return peek()->get_type() == expected; }
 
 void Parser::expect(int expected) {
     if (!test(expected)) {
-        error_at(peek()->get_postion(), "expect `%s', but got `%s'",
+        error_at(peek(), "expect `%s', but got `%s'",
                  Token(expected, nullptr).get_lexeme(), peek()->get_lexeme());
     }
     next();
