@@ -217,9 +217,8 @@ TransUnit *Parser::parse() {
             } else {
                 auto vt = var->type();
                 if (!vt->equals_to(prefix->type())) {
-                    error_at(prefix->token(),
-                             "type redefined conflict: '%s' vs '%s'", vt->normalize().c_str(),
-                             prefix->type()->normalize().c_str());
+                    error_at(prefix->token(), "type redefined conflict: '%s' vs '%s'",
+                             vt->normalize().c_str(), prefix->type()->normalize().c_str());
                 }
                 if (var->is_function()) {
                     if (test('{')) {
@@ -282,7 +281,7 @@ void Parser::process_storage_class(Attribute *attr) {
     if (attr->is_typedef &&
         (attr->is_extern || attr->is_inline || attr->is_static || attr->is_thread_local))
         error_at(tk, "typedef may not work with extern, inline, "
-                                    "static, or some storage class else.");
+                     "static, or some storage class else.");
     next();
 #undef error_dup_toke
 }
@@ -478,7 +477,7 @@ const Type *Parser::parse_declaration_specifiers(Attribute *attr) {
     // const Type *type;
     while (true) {
         auto tk = peek();
-        debug_token(tk);
+        // debug_token(tk);
         if (tk->is_builtin_type()) {
             type_counter = process_builtin(type_counter);
         } else if (tk->is_storage_class()) {
@@ -492,8 +491,7 @@ const Type *Parser::parse_declaration_specifiers(Attribute *attr) {
             // find type
             if (t != nullptr) {
                 if (type_counter != 0) {
-                    error_at(tk,
-                             "user-defined type should not follow up builtin types.");
+                    error_at(tk, "user-defined type should not follow up builtin types.");
                 }
                 return t->type();
             }
@@ -561,7 +559,7 @@ const Type *Parser::parse_pointer(const Type *base) {
 const HalfType *Parser::parse_direct_declarator(const Type *base) {
     auto tk = peek();
     const Token *name;
-    debug_token(tk);
+    // debug_token(tk);
     // identifier
     if (tk->get_type() == TK_NAME) {
         name = tk;
@@ -578,7 +576,7 @@ const HalfType *Parser::parse_direct_declarator(const Type *base) {
     }
     next();
     tk = peek();
-    debug_token(tk);
+    // debug_token(tk);
     if (tk->get_type() == '(' || tk->get_type() == '[') {
         auto type = parse_array_or_func_decl(base, name->get_lexeme());
         return new HalfType(name, type);
@@ -588,7 +586,7 @@ const HalfType *Parser::parse_direct_declarator(const Type *base) {
 
 const HalfType *Parser::parse_parameter() {
     auto param_base_type = parse_declaration_specifiers(nullptr);
-    debug_token(peek());
+    // debug_token(peek());
     return parse_declarator(param_base_type);
 }
 
@@ -609,8 +607,8 @@ vector<const HalfType *> Parser::parse_parameters() {
     auto first = parse_parameter();
     debug("first param: %s", first->token()->get_lexeme());
     result.push_back(first);
-    auto tk = peek();
-    debug_token(tk);
+    // auto tk = peek();
+    // debug_token(tk);
     while (try_next(',')) {
         auto param = parse_parameter();
         debug("parsing parameter: %s", param->type()->normalize().c_str());
@@ -842,7 +840,9 @@ Expr *Parser::parse_binary(int bop) {
         // combine lhs and rhs, the result will be new lhs within the binary expr
         auto ek = get_expr_kind(op); // ExprKind
         check_type_for_binary(left, right, op);
-        if (left->type()->is_arithmetic() && right->type()->is_arithmetic()) {
+        if (op->get_type() == TK_LAND || op->get_type() == TK_LOR) {
+            left = new BinaryExpr(ek, op, left, right);
+        } else if (left->type()->is_arithmetic() && right->type()->is_arithmetic()) {
             auto ntype = uac(left->type(), right->type());
             left       = new BinaryExpr(ek, op, conv(ntype, left), conv(ntype, right));
         } else {
@@ -1226,8 +1226,8 @@ bool Parser::test(int expected) { return peek()->get_type() == expected; }
 
 void Parser::expect(int expected) {
     if (!test(expected)) {
-        error_at(peek(), "expect `%s', but got `%s'",
-                 Token(expected, nullptr).get_lexeme(), peek()->get_lexeme());
+        error_at(peek(), "expect `%s', but got `%s'", Token(expected, nullptr).get_lexeme(),
+                 peek()->get_lexeme());
     }
     next();
 }

@@ -91,6 +91,7 @@ static constexpr array<const char *, _keyword_end - _keyword_start> _keywords = 
     TK_ASSIGN, TK_MUL_ASSIGN, TK_DIV_ASSIGN, TK_MOD_ASSIGN, TK_ADD_ASSIGN, TK_MINUS_ASSIGN,        \
         TK_LSHIFT_ASSIGN, TK_RSHIFT_ASSIGN, TK_BAND_ASSIGN, TK_XOR_ASSIGN, TK_BOR_ASSIGN
 #define UNARY_OP() '&', '*', '+', '-', '~', '!'
+#define COMP() '>', '<', TK_EQUAL, TK_NEQUAL, TK_GEQUAL, TK_LEQUAL
 /// token groups end
 
 /// helper functions
@@ -121,6 +122,8 @@ bool Token::is_assign_operator() const noexcept { return one_of<ASSIGN_OP()>(get
 bool Token::is_unary_operator() const noexcept { return one_of<UNARY_OP()>(get_type()); }
 
 bool Token::is_decl_start() const noexcept { return is_type_token(); }
+
+bool Token::is_comparator() const noexcept { return one_of<COMP()>(get_type());}
 
 int Token::find_keyword(string_view word) {
     for (size_t i = 0; i < _keywords.size(); i++) {

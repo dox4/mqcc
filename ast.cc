@@ -66,9 +66,9 @@ void Return::accept(Visitor *v) { v->visit_return(this); }
 void BinaryExpr::accept(Visitor *visitor) { visitor->visit_binary(this); }
 
 const Type *BinaryExpr::type() const noexcept {
-    auto lt = _lhs->type();
-    auto rt = _rhs->type();
-    return uac(lt, rt);
+    if (_token->is_comparator() || _token->get_type() == TK_LAND || _token->get_type() == TK_LOR)
+        return &BuiltinType::Int;
+    return _lhs->type();
 }
 
 /// BinaryExpr end
@@ -84,7 +84,7 @@ IntConst::IntConst(const Token *token) : PrimaryExpr(EXPR_INT), _token(token) {
     if (errno == ERANGE)
         warn_at(_token, "integer number overflow.");
     _value = nval;
-    if ((_type  = infer_type_by_postfix(end)) == nullptr)
+    if ((_type = infer_type_by_postfix(end)) == nullptr)
         error_at(token, "invalid postfix for integer constant.");
 }
 void IntConst::accept(Visitor *v) { v->visit_int_const(this); }
@@ -92,7 +92,9 @@ void IntConst::accept(Visitor *v) { v->visit_int_const(this); }
 /// IntConst end
 /// Identifier
 void Identifier::accept(Visitor *v) { v->visit_identifier(this); }
-const Type *Identifier::type() const noexcept { return _scope->find_var_in_local(_token->get_lexeme())->type(); }
+const Type *Identifier::type() const noexcept {
+    return _scope->find_var_in_local(_token->get_lexeme())->type();
+}
 
 /// Identifier end
 

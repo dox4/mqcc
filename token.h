@@ -135,6 +135,7 @@ class Token {
     bool is_assign_operator() const noexcept;
     bool is_unary_operator() const noexcept;
     bool is_decl_start() const noexcept;
+    bool is_comparator() const noexcept;
 
     static bool is_line_terminater(int);
     static int find_keyword(std::string_view);

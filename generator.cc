@@ -342,50 +342,47 @@ void Generator::pop(const std::string_view &reg, int width, bool isfloat) {
 }
 void Generator::restore() {}
 
-void Generator::emit_div(const Type *type) {
-    if (type->is_float()) {
-        // TODO float division
+void Generator::emit_idiv(const Type *type) {
+    auto width    = type->size();
+    int is_singed = type->is_signed();
+    if (width < 4) {
+        int is_word = width == 2;
+        auto inst   = to_long[is_word][is_singed];
+        // left in dest and right in src
+        // extend them to long
+        emit(inst, isrc(width), r11d);
+        emit(inst, idest(width), idest(4));
+        // it seems that gcc emits `idivl` instruction for both
+        // signed and unsigned integers if their width is under 4
+        // maybe 'cause that `signed int` is big enough to hold
+        // all values of integers with width under 4
+        emit("cltd");
+        emit("idivl", r11d);
+        // if (is_singed) {
+        //     emit("cltd");
+        //     emit(get_inst("idiv", width), r11d);
+        // } else {
+        //     emit("xor", edx, edx);
+        //     emit(get_inst("div", width), r11d);
+        // }
     } else {
-        auto width    = type->size();
-        int is_singed = type->is_signed();
-        if (width < 4) {
-            int is_word = width == 2;
-            auto inst   = to_long[is_word][is_singed];
-            // left in dest and right in src
-            // extend them to long
-            emit(inst, isrc(width), r11d);
-            emit(inst, idest(width), idest(4));
-            // it seems that gcc emits `idivl` instruction for both
-            // signed and unsigned integers if their width is under 4
-            // maybe 'cause that `signed int` is big enough to hold
-            // all values of integers with width under 4
-            emit("cltd");
-            emit("idivl", r11d);
-            // if (is_singed) {
-            //     emit("cltd");
-            //     emit(get_inst("idiv", width), r11d);
-            // } else {
-            //     emit("xor", edx, edx);
-            //     emit(get_inst("div", width), r11d);
-            // }
-        } else {
-            // emit instructions for long and quad
-            if (is_singed) {
-                if (width == 4) {
-                    emit("cltd");
-                    emit("idivl", r11d);
-                } else {
-                    emit("cqto");
-                    emit("idivq", r11);
-                }
+        // emit instructions for long and quad
+        if (is_singed) {
+            if (width == 4) {
+                emit("cltd");
+                emit("idivl", r11d);
             } else {
-                emit("xorl", edx, edx);
-                emit(iinst("div", width), isrc(width));
+                emit("cqto");
+                emit("idivq", r11);
             }
+        } else {
+            emit("xorl", edx, edx);
+            emit(iinst("div", width), isrc(width));
         }
     }
 }
 
+void Generator::emit_fdiv(const Type *type) { emit(finst("div", type->size()), fsrc(), fdest()); }
 // when two unsigned operands are compared, the Zero and Carry flags indicate the
 // following relations between operands:
 // +----------------------+----+----+
@@ -422,8 +419,16 @@ void Generator::emit_div(const Type *type) {
 // | -          | !=       | SETNE    | Set byte if not equal (ZF=0)                 |
 // +------------+----------+----------+----------------------------------------------+
 
-void Generator::emit_cmp(const char *setcc, int width) {
+void Generator::emit_icmp(const char *setcc, int width) {
     emit(iinst("cmp", width), isrc(width), idest(width));
+    emit(setcc, al);
+    emit("movzbq", al, rax);
+}
+
+// ucomiss: Unordered Compare Scalar Single-Precision Floating-Point Values and Set EFLAGS
+// ucomisd: Unordered Compare Scalar Double-Precision Floating-Point Values and Set EFLAGS
+void Generator::emit_fcmp(const char *setcc, int width) {
+    emit(finst("ucomi", width), fsrc(), fdest());
     emit(setcc, al);
     emit("movzbq", al, rax);
 }
@@ -441,7 +446,7 @@ void Generator::emit_data() {
 void Generator::emit_text() {}
 
 void Generator::emit_cvt(const Type *from, const Type *to) {
-    debug("from type %s to type %s", from->normalize().c_str(), to->normalize().c_str());
+    // debug("from type %s to type %s", from->normalize().c_str(), to->normalize().c_str());
     if (to->is_float()) {
         emit_cvt_to_float(from, to);
     } else {
@@ -635,26 +640,27 @@ void Generator::visit_string_literal(StringLiteral *str) {
     emit("lea", static_addr(label, 0), rax);
 }
 
-void Generator::visit_binary(BinaryExpr *e) {
+void Generator::emit_iset0(const string_view &reg) { emit("xorq", reg, reg); }
+void Generator::emit_fset0(const string_view &freg) { emit("pxor", freg, freg); }
+void Generator::emit_ibin(BinaryExpr *e) {
     // type info
-    auto type    = e->type();
-    auto width   = type->size();
-    auto isfloat = type->is_float();
+    auto type  = e->lhs()->type();
+    auto width = type->size();
     // generate code for lhs
     visit(e->lhs());
     // cache the result of lhs
     auto dest = idest(width);
-    push(dest, width, isfloat);
+    push(dest, width, false);
     // generate code for rhs
     // result of rhs is stored at dest reg
     visit(e->rhs());
     auto src = isrc(width);
-    auto m   = isfloat ? fmov(width) : mov(width);
+    auto m   = mov(width);
     // mov rhs to src reg and pop lhs to dest reg
     // to keep the oprands order in assembly as the same as in the C code
     // it's necessary for div and sub, but unnecessary for add and mul
     emit(m, dest, src);
-    pop(dest, width, isfloat);
+    pop(dest, width, false);
     auto is_signed = type->is_signed();
     switch (e->kind()) {
     case EXPR_MUL: { // *
@@ -663,11 +669,11 @@ void Generator::visit_binary(BinaryExpr *e) {
         return;
     }
     case EXPR_DIV: { // /
-        emit_div(type);
+        emit_idiv(type);
         return;
     }
     case EXPR_MOD: { // %
-        emit_div(type);
+        emit_idiv(type);
         emit(m, dreg(width), dest);
         return;
     case EXPR_ADD: { // +
@@ -688,31 +694,179 @@ void Generator::visit_binary(BinaryExpr *e) {
         return;
     }
     case EXPR_LESS: // <
-        emit_cmp(is_signed ? "setl" : "setb", width);
+        emit_icmp(is_signed ? "setl" : "setb", width);
         return;
     case EXPR_LEQUAL: // <=
-        emit_cmp(is_signed ? "setle" : "setbe", width);
+        emit_icmp(is_signed ? "setle" : "setbe", width);
         return;
     case EXPR_GREATER: // >
-        emit_cmp(is_signed ? "setg" : "seta", width);
+        emit_icmp(is_signed ? "setg" : "seta", width);
         return;
     case EXPR_GEQUAL: // >=
-        emit_cmp(is_signed ? "setge" : "setae", width);
+        emit_icmp(is_signed ? "setge" : "setae", width);
         return;
     case EXPR_EQUAL: // ==
-        emit_cmp("sete", width);
+        emit_icmp("sete", width);
         return;
     case EXPR_NEQUAL: // !=
-        emit_cmp("setne", width);
+        emit_icmp("setne", width);
         return;
-    case EXPR_BAND: // &
-    case EXPR_BXOR: // ^
-    case EXPR_BOR:  // |
-    case EXPR_LAND: // &&
-    case EXPR_LOR:  // ||
+    case EXPR_BAND: { // &
+        auto inst = iinst("and", width);
+        emit(inst, src, dest);
+        return;
+    }
+    case EXPR_BXOR: { // ^
+        auto inst = iinst("xor", width);
+        emit(inst, src, dest);
+        return;
+    }
+    case EXPR_BOR: { // |
+        auto inst = iinst("or", width);
+        emit(inst, src, dest);
+        return;
+    }
     default:
         error("not a valid binary operator.");
     }
+    }
+}
+void Generator::emit_fbin(BinaryExpr *e) {
+    // type info
+    auto type  = e->lhs()->type();
+    auto width = type->size();
+    // generate code for lhs
+    visit(e->lhs());
+    // cache the result of lhs
+    auto dest = fdest();
+    push(dest, width, true);
+    // generate code for rhs
+    // result of rhs is stored at dest reg
+    visit(e->rhs());
+    auto src = fsrc();
+    auto m   = fmov(width);
+    emit(m, dest, src);
+    pop(dest, width, true);
+    switch (e->kind()) {
+    case EXPR_MUL: { // *
+        auto inst = finst("mul", width);
+        emit(inst, src, dest);
+        return;
+    }
+    case EXPR_DIV: { // /
+        emit_fdiv(type);
+        return;
+    }
+    case EXPR_ADD: { // +
+        auto inst = finst("add", width);
+        emit(inst, src, dest);
+        return;
+    }
+    case EXPR_SUB: { // -
+        auto inst = finst("sub", width);
+        emit(inst, src, dest);
+        return;
+    }
+    case EXPR_LESS: // <
+        emit_fcmp("setb", width);
+        return;
+    case EXPR_LEQUAL: // <=
+        emit_fcmp("setbe", width);
+        return;
+    case EXPR_GREATER: // >
+        emit_fcmp("seta", width);
+        return;
+    case EXPR_GEQUAL: // >=
+        emit_fcmp("setae", width);
+        return;
+    case EXPR_EQUAL: // ==
+        emit_fcmp("sete", width);
+        return;
+    case EXPR_NEQUAL: // !=
+        emit_fcmp("setne", width);
+        return;
+    case EXPR_MOD:  // %
+    case EXPR_BLS:  // <<
+    case EXPR_BRS:  // >>
+    case EXPR_BAND: // &
+    case EXPR_BXOR: // ^
+    case EXPR_BOR:  // |
+    default:
+        error("not a valid binary operator.");
+    }
+}
+
+// emit LAND
+//      code for lhs...
+//
+//      code for rhs...
+// .LNOT
+
+void Generator::emit_logic(BinaryExpr *e, bool isand) {
+    auto cmpf_set = [this](Expr *e) {
+        emit_fset0(fsrc());
+        emit(finst("ucomi", e->type()->size()), fdest(), fsrc());
+    };
+    auto cmpi_set = [this](Expr *e) {
+        emit_iset0(isrc(8));
+        emit(iinst("com", e->type()->size()), idest(e->type()->size()), isrc(e->type()->size()));
+    };
+    auto isfloat = e->type()->is_float();
+    auto lsetres = branch_label();
+    auto lend    = branch_label();
+    // emit code for lhs
+    visit(e);
+    // compare result with 0
+    if (isfloat)
+        cmpf_set(e->lhs());
+    else
+        cmpi_set(e->lhs());
+    // short out jmp
+    auto jmp = isand ? "je" : "jne";
+    emit(jmp, lsetres);
+    // emit code for rhs
+    visit(e);
+    // compare result with 0
+    if (isfloat)
+        cmpf_set(e->lhs());
+    else
+        cmpi_set(e->rhs());
+    emit(jmp, lsetres);
+    emit("movq", 1, rax);
+    emit("jmp", lend);
+    emit_label(lsetres);
+    if (isand)
+        emit_iset0(rax);
+    else
+        emit("movq", 1, rax);
+    emit_label(lend);
+}
+void Generator::visit_binary(BinaryExpr *e) {
+    // type of binary expression may be different from its oprands.
+    // like compare expression or logical expression
+    if (e->lhs()->type()->is_float()) {
+        switch (e->kind()) {
+        case EXPR_LAND: { // &&
+            emit_logic(e, true);
+            return;
+        }
+        case EXPR_LOR: { // ||
+            emit_logic(e, false);
+            return;
+        }
+        default:
+            emit_fbin(e);
+        }
+    } else {
+        switch (e->kind()) {
+        case EXPR_LAND: // &&
+            visit(e->lhs());
+            return;
+        case EXPR_LOR: // ||
+            return;
+        default:
+            emit_ibin(e);
+        }
     }
 }
 

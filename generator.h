@@ -153,8 +153,15 @@ class Generator : public Visitor {
     void pop(const std::string_view &reg, int, bool);
     void restore();
 
-    void emit_div(const Type *type);
-    void emit_cmp(const char *setcc, int width);
+    void emit_logic(BinaryExpr *, bool isand);
+    void emit_iset0(const std::string_view &);
+    void emit_fset0(const std::string_view &);
+    void emit_ibin(BinaryExpr *);
+    void emit_fbin(BinaryExpr *);
+    void emit_fcmp(const char *setcc, int width);
+    void emit_idiv(const Type *type);
+    void emit_fdiv(const Type *type);
+    void emit_icmp(const char *setcc, int width);
     void emit_cvt(const Type *from, const Type *to);
     void emit_cvt_to_int(const Type *from, const Type *to);
     void emit_promot_int(const Type *from);
