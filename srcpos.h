@@ -43,14 +43,19 @@ class SourcePosition {
     const char *get_line_begin() const noexcept { return _src.c_str() + (_index - _column); }
     const char *get_line_end() const noexcept {
         int idx = _index;
-        while (this->_src[idx] != '\n')
+        while (_src[idx] != '\n' && _src[idx] != '\0')
             idx++;
         return this->_src.c_str() + idx;
     }
     unsigned get_line() const noexcept { return _line; }
     unsigned get_column() const noexcept { return _column; }
 
-    const SourcePosition *copy() const noexcept { return new SourcePosition(this); }
+    const SourcePosition *copy_and_backward(int step) const noexcept {
+        auto newsp = new SourcePosition(this);
+        newsp->backward(step - 1);
+        return newsp;
+    }
+    void backward(int step) { _column -= step; }
 };
 
 #endif // _MQCC_SRC_POS_H__

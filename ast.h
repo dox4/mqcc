@@ -176,6 +176,7 @@ class Identifier : public PrimaryExpr {
     const char *get_value() const noexcept { return _token->get_lexeme(); }
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept;
+    virtual const Token *token() const { return _token; }
 
   private:
     const Token *_token;
@@ -403,6 +404,7 @@ class IfElse : public Stmt {
     Expr *cond() const noexcept { return _cond; }
     Stmt *then() const noexcept { return _then; }
     Stmt *otherwise() const noexcept { return _otherwise; }
+    virtual void accept(Visitor *);
 
   private:
     Expr *_cond;
@@ -417,6 +419,7 @@ class Switch : public Stmt {
     Expr *expr() const noexcept { return _expr; }
     Stmt *body() const noexcept { return _body; }
     const CaseDefaultList &labels() const noexcept { return _labels; }
+    virtual void accept(Visitor *);
 
   private:
     Expr *_expr;

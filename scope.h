@@ -34,7 +34,7 @@ class Scope {
     Type *find_mut_type(const std::string_view &);
     Type *find_mut_type_in_local(const std::string_view &);
 
-    Object *find_var(const std::string_view &);
+    Object *find_var(const std::string_view &) const;
     Object *find_var_in_local(const std::string_view &) const;
     size_t size() const noexcept { return _vars.size(); }
     void push_type(std::string_view, Type *);

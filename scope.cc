@@ -3,23 +3,6 @@
 #include <sstream>
 using namespace std;
 
-// bool Scope::has_name(std::string_view name) {
-//     return this->_symbols.find(name) != this->_symbols.end() ||
-//            (_parent != nullptr && _parent->has_name(name));
-// }
-//
-// Type *Scope::find_typedef(std::string_view) { return nullptr; }
-// Object *Scope::find_variable(const std::string_view key) {
-//     if (_symbols.find(key) != _symbols.end())
-//         return _symbols[key];
-//     if (_parent == nullptr)
-//         return nullptr;
-//     return _parent->find_variable(key);
-// }
-//
-// void Scope::push_name(std::string_view key, Object *obj) { _symbols.insert({key, obj}); }
-// void Scope::push_func(std::string_view key, Object *obj) {}
-
 Object *Scope::resolve_name(const std::string_view &name) {
     if (_vars.find(name) != _vars.end())
         return _vars.at(name);
@@ -56,7 +39,7 @@ Type *Scope::find_mut_type_in_local(const std::string_view &name) {
     return nullptr;
 }
 
-Object *Scope::find_var(const std::string_view &name) {
+Object *Scope::find_var(const std::string_view &name) const {
     auto in_local = find_var_in_local(name);
     return in_local ? in_local : _parent == nullptr ? nullptr : _parent->find_var(name);
 }

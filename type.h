@@ -57,6 +57,7 @@ class Type {
         unimplement();
         return nullptr;
     }
+    virtual bool is_function() const noexcept { return false; }
     // virtual const int align() const = 0;
     // virtual bool is_atomic() const  = 0;
 };
@@ -204,6 +205,7 @@ class FuncType : public Type {
     virtual const std::string normalize() const;
     virtual const int size() const noexcept { return 1; };
     virtual bool equals_to(const Type *other) const;
+    virtual bool is_function() const noexcept { return true; }
 
   private:
     const Type *_ret;

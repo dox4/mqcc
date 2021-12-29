@@ -175,8 +175,8 @@ static Expr *conv(const Type *type, Expr *expr) {
     if (expr->type()->equals_to(type))
         return expr;
     if (!type->is_compitable_with(expr->type())) {
-        error("uncompitable type with implicit conversion: from %s to %s",
-              expr->type()->normalize().c_str(), type->normalize().c_str());
+        error_at(expr->token(), "uncompitable type with implicit conversion: from %s to %s",
+                 expr->type()->normalize().c_str(), type->normalize().c_str());
     }
     return new ConvExpr(type, expr);
 }
@@ -206,14 +206,14 @@ TransUnit *Parser::parse() {
             auto prefix = parse_declarator(base_type);
             auto var    = _scope->find_var_in_local(prefix->token()->get_lexeme());
             if (var == nullptr) {
-                auto funcdecl = new Object(prefix->token(), prefix->type(), attr);
+                auto gdecl = new Object(prefix->token(), prefix->type(), attr);
                 if (test('{')) {
                     current = parse_func_def(prefix);
                 } else if (try_next(';')) {
-                    funcdecl->set_defined(false);
+                    gdecl->set_defined(false);
                 } else
                     current = parse_global_variable(prefix->type());
-                _scope->push_var(prefix->token()->get_lexeme(), funcdecl);
+                _scope->push_var(prefix->token()->get_lexeme(), gdecl);
             } else {
                 auto vt = var->type();
                 if (!vt->equals_to(prefix->type())) {
@@ -242,7 +242,6 @@ Block *Parser::parse_global_variable(const Type *base) { return nullptr; }
 const Type *Parser::parse_typedef(const Type *base) { return nullptr; }
 
 void Parser::process_storage_class(Attribute *attr) {
-    // debug("start function: %s", __func__);
     auto tk = peek();
 #define error_dup_token(tk)                                                                        \
     error_at(tk, "storage class %s has already been specified.", tk->get_lexeme())
@@ -477,7 +476,6 @@ const Type *Parser::parse_declaration_specifiers(Attribute *attr) {
     // const Type *type;
     while (true) {
         auto tk = peek();
-        // debug_token(tk);
         if (tk->is_builtin_type()) {
             type_counter = process_builtin(type_counter);
         } else if (tk->is_storage_class()) {
@@ -559,7 +557,6 @@ const Type *Parser::parse_pointer(const Type *base) {
 const HalfType *Parser::parse_direct_declarator(const Type *base) {
     auto tk = peek();
     const Token *name;
-    // debug_token(tk);
     // identifier
     if (tk->get_type() == TK_NAME) {
         name = tk;
@@ -576,7 +573,6 @@ const HalfType *Parser::parse_direct_declarator(const Type *base) {
     }
     next();
     tk = peek();
-    // debug_token(tk);
     if (tk->get_type() == '(' || tk->get_type() == '[') {
         auto type = parse_array_or_func_decl(base, name->get_lexeme());
         return new HalfType(name, type);
@@ -586,7 +582,6 @@ const HalfType *Parser::parse_direct_declarator(const Type *base) {
 
 const HalfType *Parser::parse_parameter() {
     auto param_base_type = parse_declaration_specifiers(nullptr);
-    // debug_token(peek());
     return parse_declarator(param_base_type);
 }
 
@@ -598,20 +593,15 @@ vector<const HalfType *> Parser::parse_parameters() {
         return result;
     }
     // (void)
-    else if (test(TK_VOID)) {
-        next();
+    else if (try_next(TK_VOID)) {
         expect(')');
         return result;
     }
     // (type name)
     auto first = parse_parameter();
-    debug("first param: %s", first->token()->get_lexeme());
     result.push_back(first);
-    // auto tk = peek();
-    // debug_token(tk);
     while (try_next(',')) {
         auto param = parse_parameter();
-        debug("parsing parameter: %s", param->type()->normalize().c_str());
         result.push_back(param);
     }
     expect(')');
@@ -701,7 +691,7 @@ Expr *Parser::parse_primary() {
     case TK__GENERIC:
         return parse_generic();
     default:
-        error_at(tk, "unexpected token");
+        error_at(tk, "unexpected token: (%d:%s)", tk->get_type(), tk->get_lexeme());
     }
     // no warning
     return nullptr;
@@ -1091,9 +1081,7 @@ Stmt *Parser::parse_stmt() {
     if (maybe_decl()) {
         return parse_declaration();
     }
-    auto tk = peek();
-    // debug_token(tk);
-    switch (tk->get_type()) {
+    switch (peek()->get_type()) {
     case ';':
         next();
         return Empty::instance();
@@ -1110,8 +1098,19 @@ Stmt *Parser::parse_stmt() {
     case TK_BREAK:
     case TK_RETURN:
         return parse_jump();
+    // selection
+    case TK_IF:
+        return parse_if();
+    case TK_SWITCH:
+        return parse_switch();
+    case '{': {
+        auto block = parse_block();
+        expect(';');
+        return block;
+    }
     // labeled
-    case TK_NAME:
+    case TK_NAME: {
+        auto tk = peek();
         next();
         if (try_next(':')) {
             auto stmt = parse_stmt();
@@ -1119,6 +1118,7 @@ Stmt *Parser::parse_stmt() {
         }
         // if cannot parse a labeled statement, it must be an expression statement
         unget();
+    }
     default: {
         auto expr = parse_expr();
         expect(';');
@@ -1127,13 +1127,14 @@ Stmt *Parser::parse_stmt() {
     }
     return nullptr;
 }
+
 // function definition needs compound statements aka. block
-Block *Parser::parse_block(bool in_func) {
+Block *Parser::parse_block() {
     expect('{');
     vector<BlockItem *> items;
     while (!try_next('}')) {
-        auto item = maybe_decl() ? parse_declaration() : parse_stmt();
-        if (item->is_return_stmt() && !in_func)
+        auto item = parse_stmt();
+        if (item->is_return_stmt() && _cft == nullptr)
             error_at(peek(), "return statement found out of a function body.");
         items.push_back(item);
     }
@@ -1165,7 +1166,7 @@ FuncDef *Parser::parse_func_def(const HalfType *base) {
     }
     // set current funtion type
     _cft      = func_type;
-    auto body = parse_block(true);
+    auto body = parse_block();
     // clear current function type
     _cft   = nullptr;
     _scope = _scope->float_up();

@@ -115,7 +115,7 @@ class Parser {
     Stmt *parse_do_while();
     Stmt *parse_for();
     // function definition needs compound statements aka. block
-    Block *parse_block(bool);
+    Block *parse_block();
     FuncDef *parse_func_def(const HalfType *);
     FuncDef *parse_func_def(type_counter_t, Declarator *);
     Block *parse_global_variable(const Type *);

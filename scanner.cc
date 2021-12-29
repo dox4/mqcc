@@ -19,9 +19,9 @@ Scanner::Scanner(const char *file_name) { _sp = new SourcePosition(file_name); }
 Scanner::Scanner(const char *file_name, std::string src) {
     _sp = new SourcePosition(file_name, src);
 }
-const Token *Scanner::make_token(int tp) { return Token::make_token(tp, _sp->copy()); }
+const Token *Scanner::make_token(int tp) { return Token::make_token(tp, _sp->copy_and_backward(1)); }
 const Token *Scanner::make_token(int tp, const char *literal) {
-    return Token::make_token(tp, literal, _sp->copy());
+    return Token::make_token(tp, literal, _sp->copy_and_backward(strlen(literal)));
 }
 
 void Scanner::next() { _sp->next(); }

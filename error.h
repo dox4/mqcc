@@ -39,7 +39,7 @@ inline void error_unexpected(char expected, char actual) {
 
 #define debug_token(tk)                                                                            \
     do {                                                                                           \
-        debug("show debug information");                                                           \
+        debug("from macro `debug_token`:");                                                        \
         warn_token(tk, "got token: (%s, %d)", tk->get_lexeme(), tk->get_type());                   \
     } while (false)
 
@@ -49,6 +49,7 @@ void error_invalid_oprands(const Token *tok, const Type *t1, const Type *t2);
 void warn_at(const Token *, const char *fmt, ...);
 void warn_token(const Token *, const char *, ...);
 #define unreachable() (error("error at %s:%d, unreachable code.", __FILE__, __LINE__))
-#define unimplement() (error("umimplemented function invoked: %s", __func__))
+#define unimplement()                                                                              \
+    (error("%s:%d: umimplemented function invoked: %s", __FILE__, __LINE__, __func__))
 
 #endif

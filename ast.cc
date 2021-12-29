@@ -44,7 +44,9 @@ void ExprStmt::accept(Visitor *visitor) { _expr->accept(visitor); }
 
 /// ExprStmt end
 
-// iteration
+// selection
+void IfElse::accept(Visitor *v) { v->visit_ifelse(this); }
+void Switch::accept(Visitor *v) { v->visit_switch(this); }
 
 // iteration
 void While::accept(Visitor *v) { v->visit_while(this); }
@@ -93,7 +95,7 @@ void IntConst::accept(Visitor *v) { v->visit_int_const(this); }
 /// Identifier
 void Identifier::accept(Visitor *v) { v->visit_identifier(this); }
 const Type *Identifier::type() const noexcept {
-    return _scope->find_var_in_local(_token->get_lexeme())->type();
+    return _scope->find_var(_token->get_lexeme())->type();
 }
 
 /// Identifier end
@@ -102,7 +104,12 @@ const Type *Identifier::type() const noexcept {
 
 void FuncCallExpr::accept(Visitor *visitor) { visitor->visit_func_call(this); }
 
-const Type *FuncCallExpr::type() const noexcept { return _left->type(); }
+const Type *FuncCallExpr::type() const noexcept {
+    auto functype = _left->type();
+    mqassert(functype->is_function(),
+             "left hand of a function call expression must has a function type.");
+    return static_cast<const FuncType *>(functype)->return_type();
+}
 
 /// FuncCallExpr end
 

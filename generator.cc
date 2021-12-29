@@ -878,7 +878,14 @@ void Generator::visit_labeled(Labeled *l) {
 // void Generator::visit_case(Case *c) {}
 // void Generator::visit_default(Default *def) {}
 // selection
-void Generator::visit_ifelse(IfElse *ifelse) {}
+void Generator::visit_ifelse(IfElse *ifelse) {
+    visit(ifelse->cond());
+    auto label = branch_label();
+    emit("jz", label);
+    visit(ifelse->then());
+    emit_label(label);
+    visit(ifelse->otherwise());
+}
 void Generator::visit_switch(Switch *s) {
     auto backup   = _break_to;
     auto se_label = switch_end_label();
@@ -1008,9 +1015,9 @@ void Generator::visit_assignment(Assignment *assignment) {
 }
 void Generator::visit_block(Block *block) {
     auto bak_scope = _current_scope;
+    _current_scope = block->scope();
     // debug("visiting block, scope size: %zu", _current_scope->size());
     // debug("obj in scope:\n%s", _current_scope->obj_to_string().c_str());
-    _current_scope = block->scope();
     for (auto item : block->items())
         visit(item);
     _current_scope = bak_scope;
