@@ -2,7 +2,9 @@
 #define _MQCC_GENERATOR_H__
 
 #include "ast.h"
+#include <cstdint>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -65,6 +67,76 @@ class Visitor {
     virtual void visit_initializer(Initializer *)        = 0;
 };
 
+class Generator;
+
+struct ObjAddr {
+    // addr = offset (base, index, scale)
+    // addr = offset + (base + index * scale)
+    // offset can be number or label
+    static const ObjAddr direct(std::uint64_t addr) {
+        return ObjAddr{std::to_string(addr), "", "", 0};
+    }
+    static const ObjAddr indirect(const std::string_view &base) { return ObjAddr{"", base, "", 0}; }
+    static const ObjAddr index_addr(const std::string &label, const std::string_view &index,
+                                    int scale) {
+        return ObjAddr{label, "", index, scale};
+    }
+    static const ObjAddr base_addr(int offset, const std::string_view &base) {
+        return ObjAddr{std::to_string(offset), base, "", 0};
+    }
+    static const ObjAddr base_addr(const std::string &label, const std::string_view &base) {
+        return ObjAddr{label, base, "", 0};
+    }
+    const std::string offset;
+    const std::string_view &base;
+    const std::string_view &index;
+    const int scale;
+    const std::string to_string() const;
+};
+
+class LValueGenerator : public Visitor {
+  public:
+    explicit LValueGenerator(Generator *g) : _gtr(g) {}
+
+    // expressions
+    virtual void visit_int_const(IntConst *) {}
+    virtual void visit_float_const(FloatConst *) {}
+    virtual void visit_string_literal(StringLiteral *) {}
+    virtual void visit_binary(BinaryExpr *) {}
+    virtual void visit_func_call(FuncCallExpr *fd) {}
+    virtual void visit_assignment(Assignment *) {}
+    virtual void visit_identifier(Identifier *);
+    virtual void visit_conv(ConvExpr *) {}
+    virtual void visit_cast(CastExpr *) {}
+    virtual void visit_unary(UnaryExpr *) {}
+    // statements
+    virtual void visit_func_def(FuncDef *fd) {}
+    // labeled
+    virtual void visit_labeled(Labeled *) {}
+    // selection
+    virtual void visit_ifelse(IfElse *) {}
+    virtual void visit_switch(Switch *) {}
+    // iteration
+    virtual void visit_while(While *) {}
+    virtual void visit_do_while(DoWhile *) {}
+    virtual void visit_for(For *) {}
+    // jump
+    virtual void visit_goto(Goto *) {}
+    virtual void visit_continue(Continue *) {}
+    virtual void visit_break(Break *) {}
+    virtual void visit_return(Return *) {}
+    virtual void visit_block(Block *) {}
+    virtual void visit_init_declarator(InitDeclarator *) {}
+    virtual void visit_initializer(Initializer *) {}
+
+  private:
+    Generator *_gtr;
+    std::optional<const std::string> _addr = std::nullopt;
+
+  public:
+    const std::string &addr() const { return _addr.value(); }
+};
+
 class Generator : public Visitor {
   protected:
     TransUnit *_unit;
@@ -83,15 +155,7 @@ class Generator : public Visitor {
     std::stringstream _buffer;
     int _offset = 0;
     std::vector<const RoData *> _rodata;
-
-    inline void backup_loop(ContinueTo **ib, BreakTo **bt) {
-        *ib = _cont_to;
-        *bt = _break_to;
-    }
-    inline void restore_loop(ContinueTo *ib, BreakTo *bt) {
-        _cont_to  = ib;
-        _break_to = bt;
-    }
+    LValueGenerator *_lvgtr = new LValueGenerator(this);
 
   public:
     Generator(TransUnit *unit);
@@ -132,6 +196,7 @@ class Generator : public Visitor {
     virtual void visit_initializer(Initializer *);
 
   private:
+    friend class LValueGenerator;
     std::ostream &indent() { return _buffer << "    "; }
     void emit(const std::string_view &inst) { indent() << inst << '\n'; }
     void emit(const std::string_view &inst, const std::string_view &oprand) {
@@ -172,16 +237,15 @@ class Generator : public Visitor {
     const std::string add_rodata(const std::string str);
     const std::string add_rodata(const double dval);
     const std::string add_rodata(const float fval);
-};
 
-// class Address;
-// class LValueVisitor : Visitor {
-//   private:
-//     Address *_addr;
-//
-//   public:
-//     virtual void visit_identifier(Identifier *);
-//     const std::string code() const;
-// };
+    inline void backup_loop(ContinueTo **ib, BreakTo **bt) {
+        *ib = _cont_to;
+        *bt = _break_to;
+    }
+    inline void restore_loop(ContinueTo *ib, BreakTo *bt) {
+        _cont_to  = ib;
+        _break_to = bt;
+    }
+};
 
 #endif

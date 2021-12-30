@@ -5,6 +5,7 @@
 #include "type.h"
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -185,11 +186,11 @@ static const string_view rdest(int width, bool isfloat) { return isfloat ? fdest
 
 static const string_view rsrc(int width, bool isfloat) { return isfloat ? fsrc() : isrc(width); }
 
-static const string addr(const string_view &reg) {
-    stringstream s;
-    s << '(' << reg << ')';
-    return s.str();
-}
+// static const string addr(const string_view &reg) {
+//     stringstream s;
+//     s << '(' << reg << ')';
+//     return s.str();
+// }
 
 static const string onto_stack(int offset) {
     stringstream s;
@@ -901,7 +902,7 @@ void Generator::visit_switch(Switch *s) {
         // case label
         else {
             emit("movl", cd.first->value(), r11d);
-            emit("compl", eax, r11d);
+            emit("cmpl", eax, r11d);
             emit("je", cd.second);
         }
     }
@@ -1008,18 +1009,20 @@ void Generator::visit_assignment(Assignment *assignment) {
     visit(rhs);
     auto dest = rdest(size, isfloat);
     push(dest, size, isfloat);
-    visit(lhs);
-    auto src = rsrc(size, isfloat);
+    _lvgtr->visit(lhs);
+    auto addr = _lvgtr->addr();
+    auto src  = rsrc(size, isfloat);
     pop(src, size, isfloat);
-    emit(mov(size), src, addr(dest));
+    emit(mov(size), src, addr);
 }
 void Generator::visit_block(Block *block) {
     auto bak_scope = _current_scope;
     _current_scope = block->scope();
     // debug("visiting block, scope size: %zu", _current_scope->size());
     // debug("obj in scope:\n%s", _current_scope->obj_to_string().c_str());
-    for (auto item : block->items())
+    for (auto item : block->items()) {
         visit(item);
+    }
     _current_scope = bak_scope;
 }
 
@@ -1086,8 +1089,36 @@ void Generator::visit_unary(UnaryExpr *ue) {
 string Generator::code() const { return _buffer.str(); }
 
 // Generator end
-// LValueVisitor
 
-// void LValueVisitor::visit_identifier(Identifier *){}
-// const string LValueVisitor::code() const {}
-// LValueVisitor end
+const string ObjAddr::to_string() const {
+    stringstream ss;
+    ss << offset;
+    if (!(base.empty() && index.empty())) {
+        ss << "(";
+        if (!base.empty()) {
+            ss << base;
+        }
+        if (!index.empty())
+            ss << "," << index << "," << scale;
+        ss << ")";
+    }
+    return ss.str();
+}
+
+// LValueGenerator
+
+void LValueGenerator::visit_identifier(Identifier *ident) {
+    auto obj = _gtr->_current_scope->find_var_in_local(ident->get_value());
+    auto sp  = ident->token()->get_position();
+    _gtr->emit("#", sp->get_file_name(), to_string(sp->get_line()));
+    _gtr->emit("#", sp->current_line());
+    if (obj != nullptr) {
+        if (obj->offset() >= 0) {
+            auto reg = reg_args[obj->offset()][obj->type()->size()];
+            _addr.emplace(string(reg));
+        } else {
+            _addr.emplace(ObjAddr::base_addr(obj->offset(), rbp).to_string());
+        }
+    }
+}
+// LValueGenerator end

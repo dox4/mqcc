@@ -875,8 +875,8 @@ Expr *Parser::parse_expr() { return parse_assignment(); }
 // make labels while parsing case and default statements
 static string caselabelmaker() {
     static int label_conter = 0;
-    stringstream s(".LCD_");
-    s << label_conter++;
+    stringstream s;
+    s << ".LCD_" << label_conter++;
     return s.str();
 }
 // (6.8.1) labeled-statement:
@@ -1105,10 +1105,12 @@ Stmt *Parser::parse_stmt() {
         return parse_switch();
     case '{': {
         auto block = parse_block();
-        expect(';');
         return block;
     }
     // labeled
+    case TK_CASE:
+    case TK_DEFAULT:
+        return parse_labeled();
     case TK_NAME: {
         auto tk = peek();
         next();
@@ -1227,7 +1229,7 @@ bool Parser::test(int expected) { return peek()->get_type() == expected; }
 
 void Parser::expect(int expected) {
     if (!test(expected)) {
-        error_at(peek(), "expect `%s', but got `%s'", Token(expected, nullptr).get_lexeme(),
+        error_at(peek(), "expect '%s', but got '%s'", Token(expected, nullptr).get_lexeme(),
                  peek()->get_lexeme());
     }
     next();

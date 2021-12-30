@@ -292,6 +292,7 @@ class Assignment : public Expr {
     Expr *lhs() const noexcept { return _lhs; }
     Expr *rhs() const noexcept { return _rhs; }
     int assign_type() const noexcept { return _type; }
+    virtual void accept(Visitor*);
 
   private:
     Expr *_lhs, *_rhs;
@@ -342,6 +343,7 @@ class Labeled : public Stmt {
     explicit Labeled(const std::string label, Stmt *stmt) : _label(label), _stmt(stmt) {}
     const std::string &label() const noexcept { return _label; }
     Stmt *stmt() const noexcept { return _stmt; }
+    virtual void accept(Visitor *);
 
   private:
     const std::string _label;

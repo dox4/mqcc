@@ -49,13 +49,7 @@ class SourcePosition {
     }
     unsigned get_line() const noexcept { return _line; }
     unsigned get_column() const noexcept { return _column; }
-
-    const SourcePosition *copy_and_backward(int step) const noexcept {
-        auto newsp = new SourcePosition(this);
-        newsp->backward(step - 1);
-        return newsp;
-    }
-    void backward(int step) { _column -= step; }
+    const SourcePosition *copy() const noexcept { return new SourcePosition(this); }
 };
 
 #endif // _MQCC_SRC_POS_H__

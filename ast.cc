@@ -44,6 +44,10 @@ void ExprStmt::accept(Visitor *visitor) { _expr->accept(visitor); }
 
 /// ExprStmt end
 
+// labeled
+
+void Labeled::accept(Visitor *v) { v->visit_labeled(this); }
+
 // selection
 void IfElse::accept(Visitor *v) { v->visit_ifelse(this); }
 void Switch::accept(Visitor *v) { v->visit_switch(this); }
@@ -113,6 +117,7 @@ const Type *FuncCallExpr::type() const noexcept {
 
 /// FuncCallExpr end
 
+void Assignment::accept(Visitor *v) { v->visit_assignment(this); }
 void ConvExpr::accept(Visitor *v) { v->visit_conv(this); }
 void CastExpr::accept(Visitor *v) { v->visit_cast(this); }
 void UnaryExpr::accept(Visitor *v) { v->visit_unary(this); }

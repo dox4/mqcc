@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 using namespace std;
 
 // Reports an error and exit.
@@ -25,7 +26,7 @@ void error_at(const Token *tok, const char *fmt, ...) {
     int indent =
         fprintf(stderr, "%s:%d:%d:", sp->get_file_name(), sp->get_line(), sp->get_column());
     fprintf(stderr, "%s", sp->current_line());
-    fprintf(stderr, "%*s", indent + sp->get_column() - 1, "");
+    fprintf(stderr, "%*s", indent + sp->get_column() - (int)strlen(tok->get_lexeme()) - 1, "");
     fprintf(stderr, "^ ");
     va_list ap;
     va_start(ap, fmt);
