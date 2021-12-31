@@ -801,22 +801,12 @@ Expr *Parser::parse_cast() {
     }
     return parse_unary();
 }
-// Expr *Parser::parse_mult() { return parse_cast(); }
-// Expr *Parser::parse_add() { return parse_mult(); }
-// Expr *Parser::parse_shift() { return parse_add(); }
-// Expr *Parser::parse_relational() { return parse_shift(); }
-// Expr *Parser::parse_equality() { return parse_relational(); }
-// Expr *Parser::parse_bit_and() { return parse_equality(); }
-// Expr *Parser::parse_bit_xor() { return parse_bit_and(); }
-// Expr *Parser::parse_bit_or() { return parse_bit_xor(); }
-// Expr *Parser::parse_log_and() { return parse_bit_or(); }
-// Expr *Parser::parse_log_or() { return parse_log_and(); }
 
 // @bop binary operator priority
 Expr *Parser::parse_binary(int bop) {
     // end cond
     if (bop == OP_NOT_VALID) {
-        return parse_postfix();
+        return parse_cast();
     }
     // parse lhs
     auto left     = parse_binary(bop + 1);
@@ -860,6 +850,14 @@ Expr *Parser::parse_conditional() {
 Expr *Parser::parse_assignment() {
     auto expr = parse_conditional();
     if (expr->kind() <= EXPR_UNARY) {
+        if (expr->kind() == EXPR_IDENT) {
+            auto obj = _scope->find_var(expr->token()->get_lexeme());
+            if (obj == nullptr) {
+                warn_at(expr->token(), "use undeclared variable, assume as int.");
+                _scope->push_var(expr->token()->get_lexeme(),
+                                 new Object(expr->token(), &BuiltinType::Int, nullptr));
+            }
+        }
         if (peek()->is_assign_operator()) {
             auto tk_type = peek()->get_type();
             next();
@@ -1023,8 +1021,12 @@ Stmt *Parser::parse_for() {
         expect(';');
     }
     // accumulator part
-    auto accumulator = parse_expr();
-    expect(')');
+    Expr* accumulator;
+    if (try_next(')')) {
+        accumulator = nullptr;}
+        else {
+   accumulator = parse_expr();
+    expect(')');}
     auto body = parse_stmt();
     return new For(init, cond, accumulator, body);
 }

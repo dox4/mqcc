@@ -94,9 +94,13 @@ class Expr : public AstNode {
     Expr(ExprKind kind) : _kind(kind) {}
     const ExprKind kind() const noexcept { return _kind; }
     // TODO: should be pure virtual
-    virtual const Type *type() const noexcept { return nullptr; };
+    virtual const Type *type() const noexcept {
+        unimplement();
+        return nullptr;
+    };
     virtual bool is_unary() const noexcept { return false; }
     virtual bool is_int_const() const noexcept { return false; }
+    virtual bool is_const() const noexcept { return false; }
     virtual const Token *token() const { return nullptr; }
 
   private:
@@ -188,12 +192,19 @@ class Identifier : public PrimaryExpr {
 //   floating-constant
 //   enumeration-constant
 //   character-constant
-class FloatConst : public PrimaryExpr {
+class Const : public PrimaryExpr {
+  protected:
+    explicit Const(ExprKind kind) : PrimaryExpr(kind){};
+
+  public:
+    virtual bool is_const() const noexcept { return true; }
+};
+class FloatConst : public Const {
   public:
     //     explicit FloatConst(double val, bool isfloat)
     //         : PrimaryExpr(EXPR_FLOAT), _value(val),
     //           _type(isfloat ? &BuiltinType::Float : &BuiltinType::Double) {}
-    explicit FloatConst(const Token *token) : PrimaryExpr(EXPR_FLOAT), _token(token) {
+    explicit FloatConst(const Token *token) : Const(EXPR_FLOAT), _token(token) {
         char *end;
         double dval = std::strtod(token->get_lexeme(), &end);
         _value      = dval;
@@ -209,21 +220,11 @@ class FloatConst : public PrimaryExpr {
     const Token *_token;
     const Type *_type;
 };
-class IntConst : public PrimaryExpr {
+class IntConst : public Const {
   public:
-    // explicit IntConst(int val) : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Int) {}
-    // explicit IntConst(unsigned int val)
-    //     : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::UInt) {}
-    // explicit IntConst(long val) : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Long)
-    // {} explicit IntConst(unsigned long val)
-    //     : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::ULong) {}
-    // explicit IntConst(long long val)
-    //     : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::Long) {}
-    // explicit IntConst(unsigned long long val)
-    //     : PrimaryExpr(EXPR_INT), _value(val), _type(&BuiltinType::ULong) {}
     explicit IntConst(const Token *token);
     explicit IntConst(const Token *token, int ival)
-        : PrimaryExpr(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::Int) {}
+        : Const(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::Int) {}
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept { return _type; }
     virtual bool is_int_const() const noexcept { return true; }
@@ -236,9 +237,9 @@ class IntConst : public PrimaryExpr {
     const Type *_type;
 };
 
-class StringLiteral : public PrimaryExpr {
+class StringLiteral : public Const {
   public:
-    explicit StringLiteral(const Token *literal) : PrimaryExpr(EXPR_STR), _token(literal){};
+    explicit StringLiteral(const Token *literal) : Const(EXPR_STR), _token(literal){};
     const char *get_value() const noexcept { return _token->get_lexeme(); }
     virtual void accept(Visitor *) {}
     // virtual const Type *type() const noexcept;
@@ -249,17 +250,22 @@ class StringLiteral : public PrimaryExpr {
 
 class UnaryExpr : public Expr {
   protected:
-    explicit UnaryExpr() : Expr(EXPR_UNARY) {}
+    explicit UnaryExpr(Expr *oprand) : Expr(EXPR_UNARY), _oprand(oprand) {}
 
   public:
     virtual bool is_unary() const noexcept { return true; }
     virtual int unary_type() const noexcept = 0;
     virtual void accept(Visitor *);
+    Expr *oprand() const noexcept { return _oprand; }
+    virtual const Type *type() const noexcept;
+
+  private:
+    Expr *_oprand;
 };
 
 template <int Type> class TypedUnaryExpr : public UnaryExpr {
   public:
-    explicit TypedUnaryExpr(Expr *oprand) : UnaryExpr(), _type(Type) {}
+    explicit TypedUnaryExpr(Expr *oprand) : UnaryExpr(oprand), _type(Type) {}
     virtual int unary_type() const noexcept { return Type; };
 
   private:
@@ -292,7 +298,8 @@ class Assignment : public Expr {
     Expr *lhs() const noexcept { return _lhs; }
     Expr *rhs() const noexcept { return _rhs; }
     int assign_type() const noexcept { return _type; }
-    virtual void accept(Visitor*);
+    virtual void accept(Visitor *) override;
+    virtual const Type *type() const noexcept override { return _lhs->type(); }
 
   private:
     Expr *_lhs, *_rhs;

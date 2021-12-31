@@ -163,6 +163,7 @@ class BuiltinType : public Type {
 class PointerType : public Type {
   public:
     explicit PointerType(const Type *point_to) : Type(TY_PTR, 8, ""), _point_to(point_to) {}
+    static const PointerType *point_to(const Type *type);
     virtual const Type *point_to() const { return _point_to; }
     virtual const std::string normalize() const { return _point_to->normalize() + "*"; }
     virtual const int size() const noexcept { return 8; };

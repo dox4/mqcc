@@ -1,6 +1,7 @@
 #ifndef _MQCC_SCOPE_H__
 #define _MQCC_SCOPE_H__
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -41,6 +42,7 @@ class Scope {
     void push_var(std::string_view, Object *);
     Scope *drill_down();
     Scope *float_up();
+    int offset() const noexcept { return _offset; }
 
     std::string obj_to_string() const;
 

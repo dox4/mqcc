@@ -83,7 +83,7 @@ void FloatConst::accept(Visitor *v) { v->visit_float_const(this); }
 
 /// IntConst
 
-IntConst::IntConst(const Token *token) : PrimaryExpr(EXPR_INT), _token(token) {
+IntConst::IntConst(const Token *token) : Const(EXPR_INT), _token(token) {
     char *end;
     // got the value and assign
     auto nval = std::strtoull(_token->get_lexeme(), &end, 10);
@@ -121,6 +121,9 @@ void Assignment::accept(Visitor *v) { v->visit_assignment(this); }
 void ConvExpr::accept(Visitor *v) { v->visit_conv(this); }
 void CastExpr::accept(Visitor *v) { v->visit_cast(this); }
 void UnaryExpr::accept(Visitor *v) { v->visit_unary(this); }
+const Type *UnaryExpr::type() const noexcept {
+    return unary_type() == '&' ? new PointerType(_oprand->type()) : _oprand->type();
+}
 /// FuncDef
 
 void FuncDef::accept(Visitor *visitor) { visitor->visit_func_def(this); }

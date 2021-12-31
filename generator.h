@@ -108,7 +108,7 @@ class LValueGenerator : public Visitor {
     virtual void visit_identifier(Identifier *);
     virtual void visit_conv(ConvExpr *) {}
     virtual void visit_cast(CastExpr *) {}
-    virtual void visit_unary(UnaryExpr *) {}
+    virtual void visit_unary(UnaryExpr *);
     // statements
     virtual void visit_func_def(FuncDef *fd) {}
     // labeled

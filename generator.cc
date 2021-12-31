@@ -186,11 +186,11 @@ static const string_view rdest(int width, bool isfloat) { return isfloat ? fdest
 
 static const string_view rsrc(int width, bool isfloat) { return isfloat ? fsrc() : isrc(width); }
 
-// static const string addr(const string_view &reg) {
-//     stringstream s;
-//     s << '(' << reg << ')';
-//     return s.str();
-// }
+static const string addr(const string_view &reg) {
+    stringstream s;
+    s << '(' << reg << ')';
+    return s.str();
+}
 
 static const string onto_stack(int offset) {
     stringstream s;
@@ -882,7 +882,8 @@ void Generator::visit_labeled(Labeled *l) {
 void Generator::visit_ifelse(IfElse *ifelse) {
     visit(ifelse->cond());
     auto label = branch_label();
-    emit("jz", label);
+    emit("cmpl", 0, eax);
+    emit("je", label);
     visit(ifelse->then());
     emit_label(label);
     visit(ifelse->otherwise());
@@ -982,7 +983,8 @@ void Generator::visit_for(For *f) {
     emit_label(bl);
     if (f->cond() != nullptr) {
         visit(f->cond());
-        emit("jz", el);
+        emit("cmpl", 0, eax);
+        emit("je", el);
     }
     visit(f->body());
     if (f->accumulator() != nullptr)
@@ -1006,24 +1008,24 @@ void Generator::visit_assignment(Assignment *assignment) {
     auto lhs     = assignment->lhs();
     auto size    = rhs->type()->size();
     auto isfloat = rhs->type()->is_float();
-    visit(rhs);
-    auto dest = rdest(size, isfloat);
-    push(dest, size, isfloat);
     _lvgtr->visit(lhs);
     auto addr = _lvgtr->addr();
-    auto src  = rsrc(size, isfloat);
-    pop(src, size, isfloat);
-    emit(mov(size), src, addr);
+    visit(rhs);
+    emit(mov(size), rdest(size, isfloat), addr);
 }
 void Generator::visit_block(Block *block) {
-    auto bak_scope = _current_scope;
-    _current_scope = block->scope();
+    auto bak_scope  = _current_scope;
+    _current_scope  = block->scope();
+    auto bak_offset = _offset;
+    _offset         = _current_scope->offset();
     // debug("visiting block, scope size: %zu", _current_scope->size());
     // debug("obj in scope:\n%s", _current_scope->obj_to_string().c_str());
     for (auto item : block->items()) {
         visit(item);
     }
+    // debug("visiting block, scope size: %zu", _current_scope->size());
     _current_scope = bak_scope;
+    _offset        = bak_offset;
 }
 
 void Generator::visit_init_declarator(InitDeclarator *id) {
@@ -1071,16 +1073,59 @@ void Generator::visit_conv(ConvExpr *conv) {
 
 void Generator::visit_cast(CastExpr *) {}
 void Generator::visit_unary(UnaryExpr *ue) {
-    // TODO
     switch (ue->unary_type()) {
-    case TK_INC:
-    case TK_DEC:
-    case '*':
-    case '+':
-    case '-':
+    case TK_INC: {
+        // ++ expr => expr = expr + 1
+        _lvgtr->visit(ue->oprand());
+        auto dest = _lvgtr->addr();
+        auto add  = ue->type()->is_float() ? finst("add", ue->type()->size())
+                                           : iinst("add", ue->type()->size());
+        emit(add, 1, dest);
+        visit(ue->oprand());
+        return;
+    }
+    case TK_DEC: {
+        // -- expr => expr = expr - 1
+        _lvgtr->visit(ue->oprand());
+        auto dest = _lvgtr->addr();
+        auto sub  = ue->type()->is_float() ? finst("sub", ue->type()->size())
+                                           : iinst("sub", ue->type()->size());
+        emit(sub, 1, dest);
+        visit(ue->oprand());
+        return;
+    }
+    case '*': {
+        visit(ue->oprand());
+        auto valtype = ue->oprand()->type();
+        if (valtype->is_float()) {
+            emit(fmov(valtype->size()), addr(rax), fdest());
+        } else {
+            emit(mov(valtype->size()), addr(rax), idest(valtype->size()));
+        }
+        return;
+    }
+    case '+': {
+        visit(ue->oprand());
+        return;
+    }
+    case '-': {
+        visit(ue->oprand());
+        if (ue->type()->is_integer()) {
+            emit(iinst("neg", ue->type()->size()), idest(ue->type()->size()));
+        }
+        return;
+    }
     case '!':
-    case '&':
+        unimplement();
+    case '&': {
+        _lvgtr->visit(ue->oprand());
+        set_mark();
+        emit("lea", _lvgtr->addr(), rax);
+        set_mark();
+        return;
+    }
     case '~':
+        unimplement();
     default:
         unreachable();
     }
@@ -1107,6 +1152,31 @@ const string ObjAddr::to_string() const {
 
 // LValueGenerator
 
+void LValueGenerator::visit_unary(UnaryExpr *ue) {
+    switch (ue->unary_type()) {
+    case TK_INC: {
+    }
+    case TK_DEC: {
+    }
+    case '*': {
+        _gtr->visit(ue->oprand());
+        _gtr->emit("movq", rax, r10);
+        _addr.emplace(::addr(r10));
+        return;
+    }
+    case '+': {
+    }
+    case '&': {
+        visit(ue->oprand());
+        return;
+    }
+    case '-':
+    case '!':
+    case '~':
+    default:
+        unreachable();
+    }
+}
 void LValueGenerator::visit_identifier(Identifier *ident) {
     auto obj = _gtr->_current_scope->find_var_in_local(ident->get_value());
     auto sp  = ident->token()->get_position();
@@ -1117,7 +1187,8 @@ void LValueGenerator::visit_identifier(Identifier *ident) {
             auto reg = reg_args[obj->offset()][obj->type()->size()];
             _addr.emplace(string(reg));
         } else {
-            _addr.emplace(ObjAddr::base_addr(obj->offset(), rbp).to_string());
+            auto stack_offset = obj->offset();
+            _addr.emplace(ObjAddr::base_addr(stack_offset, rbp).to_string());
         }
     }
 }
