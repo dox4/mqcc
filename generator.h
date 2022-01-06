@@ -264,7 +264,6 @@ class Generator : public Visitor {
     void emit_logic(Binary *, bool isand);
     void emit_iset0(const std::string_view &);
     void emit_fset0(const std::string_view &);
-    void emit_ibin(Binary *);
     void emit_oprands_for_integer_binary(Binary *);
     void emit_additive(Binary *);
     void emit_arithmetic_integer_additive(Add *);

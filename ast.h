@@ -62,25 +62,7 @@ enum ExprKind {
     // cast
     EXPR_CAST,
 
-    // binary expression
-    EXPR_MUL,     // *
-    EXPR_DIV,     // /
-    EXPR_MOD,     // %
-    EXPR_ADD,     // +
-    EXPR_SUB,     // -
-    EXPR_BLS,     // <<
-    EXPR_BRS,     // >>
-    EXPR_LESS,    // <
-    EXPR_GREATER, // >
-    EXPR_LEQUAL,  // <=
-    EXPR_GEQUAL,  // >=
-    EXPR_EQUAL,   // ==
-    EXPR_NEQUAL,  // !=
-    EXPR_BAND,    // &
-    EXPR_BXOR,    // ^
-    EXPR_BOR,     // |
-    EXPR_LAND,    // &&
-    EXPR_LOR,     // ||
+    EXPR_BINARY,
 
     EXPR_COND, // :?
 
@@ -126,7 +108,7 @@ class Cond : public Expr {
 class Binary : public Expr {
   public:
     Binary(const Token *token, Expr *lhs, Expr *rhs)
-        : Expr(EXPR_ADD), _token(token), _lhs(lhs), _rhs(rhs) {}
+        : Expr(EXPR_BINARY), _token(token), _lhs(lhs), _rhs(rhs) {}
     Expr *lhs() const noexcept { return _lhs; }
     Expr *rhs() const noexcept { return _rhs; }
     void set_lhs(Expr *expr) { _lhs = expr; }
@@ -464,22 +446,6 @@ class Labeled : public Stmt {
     Stmt *_stmt;
 };
 
-// class Case : public Labeled {
-//   public:
-//     explicit Case(const std::string label, IntConst *expr, Stmt *stmt)
-//         : Labeled(label, stmt), _expr(expr) {}
-//     const std::string label() const noexcept { return _label; }
-//     IntConst *expr() const noexcept { return _expr; }
-//
-//   private:
-//     const std::string _label;
-//     IntConst *_expr;
-// };
-// class Default : public Stmt {
-//   public:
-//     explicit Default(Stmt *stmt) : _stmt(stmt) {}
-//     Stmt *_stmt;
-// };
 class Block : public Stmt {
   public:
     explicit Block(const Scope *scope, const std::vector<BlockItem *> items)

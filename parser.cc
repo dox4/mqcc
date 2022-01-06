@@ -18,51 +18,6 @@ using namespace std;
 
 /// static functions
 
-// clang-format off
-// static ExprKind get_expr_kind(const Token* tok) {
-//     switch (tok->get_type()) {
-//         case TK_STAR   : return EXPR_MUL;     // *
-//         case TK_SLASH  : return EXPR_DIV;     // /
-//         case TK_MOD    : return EXPR_MOD;     // %
-//         case TK_PLUS   : return EXPR_ADD;     // +
-//         case TK_MINUS  : return EXPR_SUB;     // -
-//         case TK_LSHIFT : return EXPR_BLS;     // <<
-//         case TK_RSHIFT : return EXPR_BRS;     // >>
-//         case TK_LESS   : return EXPR_LESS;    // <
-//         case TK_GREATER: return EXPR_GREATER; // >
-//         case TK_LEQUAL : return EXPR_LEQUAL;  // <=
-//         case TK_GEQUAL : return EXPR_GEQUAL;  // >=
-//         case TK_EQUAL  : return EXPR_EQUAL;   // ==
-//         case TK_NEQUAL : return EXPR_NEQUAL;  // !=
-//         case TK_BAND    : return EXPR_BAND;    // &
-//         case TK_XOR    : return EXPR_BXOR;    // ^
-//         case TK_BOR     : return EXPR_BOR;     // |
-//         case TK_LAND   : return EXPR_LAND;    // &&
-//         case TK_LOR    : return EXPR_LOR;     // ||
-//         default:
-//             error_at(tok, "%s is not a binary token",  tok->get_lexeme());
-//     }
-//     unreachable();
-//     // no warning
-//     return EXPR_INT;
-// }
-// clang-format on
-
-// binary operator priority
-enum BOP {
-    OP_LOR,
-    OP_LAND,
-    OP_BOR,
-    OP_BXOR,
-    OP_BAND,
-    OP_EQUAL,
-    OP_RELATION,
-    OP_SHIFT,
-    OP_ADD,
-    OP_MUL,
-    OP_NOT_VALID,
-};
-
 static Expr *conv(const Type *type, Expr *expr) {
     if (expr->kind() == EXPR_FUNC_CALL)
         return expr;
@@ -154,138 +109,6 @@ static void check_type_scalars(Expr *e) {
     if (!(b->lhs()->type()->is_scalar() && b->rhs()->type()->is_scalar()))
         error_invalid_oprands(b->token(), b->lhs()->type(), b->rhs()->type());
 }
-
-// static void check_type_for_binary(Expr *lhs, Expr *rhs, const Token *tok) {
-// #define isarith(t) (t->is_arithmetic())
-// #define isint(t) (t->is_integer())
-// #define isptr(t) (t->is_pointer())
-// #define bothint(t1, t2) (isint(t1) && (isint(t2)))
-// #define botharith(t1, t2) ((isarith(t1)) && (isarith(t2)))
-// #define bothptr(t1, t2) ((isptr(t1) && isptr(t2)))
-//     auto ltype = lhs->type(), rtype = rhs->type();
-//     switch (tok->get_type()) {
-//     case TK_STAR:  // *
-//     case TK_SLASH: // /
-//         if (!botharith(ltype, rtype))
-//             error_invalid_oprands(tok, lhs->type(), rhs->type());
-//         break;
-//     case TK_MOD:    // %
-//     case TK_LSHIFT: // <<
-//     case TK_RSHIFT: // >>
-//     case TK_BAND:   // &
-//     case TK_XOR:    // ^
-//     case TK_BOR:    // |
-//         if (!bothint(ltype, rtype))
-//             error_invalid_oprands(tok, lhs->type(), rhs->type());
-//         break;
-//     case TK_PLUS: // +
-//         if (!(botharith(ltype, rtype) || (isint(ltype) && (isptr(rtype) || rtype->is_array())) ||
-//               ((isptr(ltype) || ltype->is_array()) && isint(rtype))))
-//             error_invalid_oprands(tok, lhs->type(), rhs->type());
-//         break;
-//     case TK_MINUS: { // -
-//         if (!(botharith(ltype, rtype) || (isptr(ltype) && isint(rtype)) ||
-//               (isptr(ltype) && isptr(rtype))))
-//             error_invalid_oprands(tok, lhs->type(), rhs->type());
-//         if (isptr(ltype) && isptr(rtype))
-//             if (!ltype->point_to()->equals_to(rtype->point_to()))
-//                 error_invalid_oprands(tok, lhs->type(), rhs->type());
-//         break;
-//     }
-//     case TK_LESS:    // <
-//     case TK_GREATER: // >
-//     case TK_LEQUAL:  // <=
-//     case TK_GEQUAL:  // >=
-//         if (!(botharith(ltype, rtype) || bothptr(ltype, rtype)))
-//             error_invalid_oprands(tok, lhs->type(), rhs->type());
-//         if (bothptr(ltype, rtype) && ltype->point_to()->is_compitable_with(rtype->point_to()))
-//             warn_at(tok, "comparison of distinct pointer types ('%s' and '%s'.",
-//                     ltype->normalize().c_str(), rtype->normalize().c_str());
-//         break;
-//     case TK_EQUAL:  // ==
-//     case TK_NEQUAL: // !=
-//         if (!((botharith(ltype, rtype)) || bothptr(ltype, rtype)))
-//             error_invalid_oprands(tok, lhs->type(), rhs->type());
-//         if (bothptr(ltype, rtype)) {
-//             if (!ltype->point_to()->equals_to(ltype->point_to()))
-//                 warn_at(tok, "comparison of distinct pointer types ('%s' and '%s'.",
-//                         ltype->normalize().c_str(), rtype->normalize().c_str());
-//         }
-//         break;
-//     case TK_LAND: // &&
-//     case TK_LOR:  // ||
-//         if (!(ltype->is_scalar() && rtype->is_scalar()))
-//             error_invalid_oprands(tok, lhs->type(), rhs->type());
-//         break;
-//     default:
-//         unreachable();
-//     }
-// #undef isarith
-// #undef isint
-// #undef isptr
-// #undef bothint
-// #undef botharith
-// #undef bothptr
-// }
-
-// static int get_priority(int tok_type) {
-//     switch (tok_type) {
-//     case TK_STAR:  // *
-//     case TK_SLASH: // /
-//     case TK_MOD:   // %
-//         return OP_MUL;
-//     case TK_PLUS:  // +
-//     case TK_MINUS: // -
-//         return OP_ADD;
-//     case TK_LSHIFT: // <<
-//     case TK_RSHIFT: // >>
-//         return OP_SHIFT;
-//     case TK_LESS:    // <
-//     case TK_GREATER: // >
-//         return OP_RELATION;
-//     case TK_LEQUAL: // <=
-//     case TK_GEQUAL: // >=
-//     case TK_EQUAL:  // ==
-//     case TK_NEQUAL: // !=
-//         return OP_EQUAL;
-//     case TK_BAND: // &
-//         return OP_BAND;
-//     case TK_XOR: // ^
-//         return OP_BXOR;
-//     case TK_BOR: // |
-//         return OP_BOR;
-//     case TK_LAND: // &&
-//         return OP_LAND;
-//     case TK_LOR: // ||
-//         return OP_LOR;
-//     default:
-//         return OP_NOT_VALID;
-//     }
-// }
-
-// static Expr *wrap_array(Expr *expr) {
-//     auto type = expr->type();
-//     if (!type->is_array())
-//         return expr;
-//     while (type->is_array()) {
-//         debug("current type: %s", type->normalize().c_str());
-//         type = static_cast<const ArrayType *>(type)->elem_type();
-//     }
-//     return new Conv(new PointerType(type), expr);
-// }
-
-// static Expr *wrap_pointer(Expr *expr, const Type *type) {
-//     if (type->is_pointer()) {
-//         return new Binary(EXPR_MUL, nullptr, conv(&BuiltinType::ULong, expr),
-//                           new IntConst(nullptr, type->point_to()->size()));
-//     }
-//     if (type->is_array()) {
-//         return new Binary(
-//             EXPR_MUL, nullptr, conv(&BuiltinType::ULong, expr),
-//             new IntConst(nullptr, static_cast<const ArrayType *>(type)->elem_type()->size()));
-//     }
-//     return expr;
-// }
 
 /// static functions end
 
@@ -960,43 +783,6 @@ Expr *Parser::parse_cast() {
     return parse_unary();
 }
 
-// @bop binary operator priority
-// Expr *Parser::parse_binary(int bop) {
-//     // end cond
-//     if (bop == OP_NOT_VALID) {
-//         return parse_cast();
-//     }
-//     // parse lhs
-//     auto left     = parse_binary(bop + 1);
-//     auto op       = peek();
-//     auto priority = get_priority(op->get_type());
-//     // parse exprs with the same priority
-//     while (priority == bop) {
-//         next();
-//         // rhs should have higher priority
-//         auto right = parse_binary(bop + 1);
-//         // combine lhs and rhs, the result will be new lhs within the binary expr
-//         auto ek = get_expr_kind(op); // ExprKind
-//         check_type_for_binary(left, right, op);
-//         if (op->get_type() == TK_LAND || op->get_type() == TK_LOR) {
-//             left = new Binary(ek, op, left, right);
-//         } else if (left->type()->is_arithmetic() && right->type()->is_arithmetic()) {
-//             auto ntype = uac(left->type(), right->type());
-//             left       = new Binary(ek, op, conv(ntype, left), conv(ntype, right));
-//         } else if (ek == EXPR_SUB && left->type()->is_pointer() && right->type()->is_pointer()) {
-//             left = new Binary(EXPR_DIV, nullptr, new Binary(ek, op, left, right),
-//                               new IntConst(nullptr, left->type()->point_to()->size()));
-//         } else {
-//             // left = new Binary(ek, op, wrap_pointer(left, right->type()),
-//             //                  wrap_pointer(right, left->type()));
-//             left = new Binary(ek, op, left, right);
-//         }
-//         op       = peek();
-//         priority = get_priority(op->get_type());
-//     }
-//     return left;
-// }
-
 // (6.5.5) multiplicative-expression:
 //      cast-expression
 //      multiplicative-expression * cast-expression
@@ -1016,6 +802,7 @@ Expr *Parser::parse_mult() {
     }
     return expr;
 }
+
 // (6.5.6) additive-expression:
 //      multiplicative-expression
 //      additive-expression + multiplicative-expression
@@ -1030,6 +817,7 @@ Expr *Parser::parse_add() {
     }
     return expr;
 }
+
 // (6.5.7) shift-expression:
 //      additive-expression
 //      shift-expression << additive-expression
@@ -1044,6 +832,7 @@ Expr *Parser::parse_shift() {
     }
     return expr;
 }
+
 // (6.5.8) relational-expression:
 //      shift-expression
 //      relational-expression < shift-expression
@@ -1060,6 +849,7 @@ Expr *Parser::parse_relational() {
     }
     return expr;
 }
+
 // (6.5.9) equality-expression:
 //      relational-expression
 //      equality-expression == relational-expression
@@ -1074,6 +864,7 @@ Expr *Parser::parse_equality() {
     }
     return expr;
 }
+
 // (6.5.10) AND-expression:
 //      equality-expression
 //      AND-expression & equality-expression
@@ -1087,6 +878,7 @@ Expr *Parser::parse_bit_and() {
     }
     return expr;
 }
+
 // (6.5.11) exclusive-OR-expression:
 //      AND-expression
 //      exclusive-OR-expression ^ AND-expression
@@ -1100,6 +892,7 @@ Expr *Parser::parse_xor() {
     }
     return expr;
 }
+
 // (6.5.12)inclusive-OR-expression:
 //      exclusive-OR-expression
 //      inclusive-OR-expression | exclusive-OR-expression
@@ -1113,6 +906,7 @@ Expr *Parser::parse_bit_or() {
     }
     return expr;
 }
+
 // (6.5.13) logical-AND-expression:
 //      inclusive-OR-expression
 //      logical-AND-expression && inclusive-OR-expression
@@ -1126,6 +920,7 @@ Expr *Parser::parse_log_and() {
     }
     return expr;
 }
+
 // (6.5.14) logical-OR-expression:
 //      logical-AND-expression
 //      logical-OR-expression || logical-AND-expression
@@ -1151,6 +946,7 @@ Expr *Parser::parse_conditional() {
     }
     return cond;
 }
+
 // assignment-expression:
 //   conditional-expression
 //   unary-expression assignment-operator assignment-expression

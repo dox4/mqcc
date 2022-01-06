@@ -713,111 +713,7 @@ void Generator::emit_derefed_additive(Add *a) {
     }
 }
 void Generator::emit_additive(Binary *b) {}
-void Generator::emit_ibin(Binary *e) {
-    if (e->kind() == EXPR_ADD || e->kind() == EXPR_SUB) {
-        emit_additive(e);
-        return;
-    }
-    // type info
-    auto lhs_type = e->lhs()->type();
-    auto width    = lhs_type->size();
-    // generate code for lhs
-    visit(e->lhs());
-    // cache the result of lhs
-    auto dest = idest(width);
-    push(dest, width, false);
-    // generate code for rhs
-    // result of rhs is stored at dest reg
-    // if lhs is a pointer or an array
-    // the rhs should be scaled by the size of the base type
-    //   if (lhs_type->is_array()) {
-    //       auto size = static_cast<const ArrayType *>(e->lhs()->type())->elem_type()->size();
-    //       visit(new Binary(EXPR_MUL, nullptr, new Conv(&BuiltinType::ULong, e->rhs()),
-    //                        new IntConst(nullptr, size)));
-    //   } else if (lhs_type->is_pointer()) {
-    //       auto size = static_cast<const PointerType *>(e->lhs()->type())->point_to()->size();
-    //       visit(new Binary(EXPR_MUL, nullptr, new Conv(&BuiltinType::ULong, e->rhs()),
-    //                        new IntConst(nullptr, size)));
-    //   } else {
-    visit(e->rhs());
-    //   }
-    auto src = isrc(width);
-    auto m   = mov(width);
-    // mov rhs to src reg and pop lhs to dest reg
-    // to keep the oprands order in assembly as the same as in the C code
-    // it's necessary for div and sub, but unnecessary for add and mul
-    emit(m, dest, src);
-    pop(dest, width, false);
-    auto is_signed = lhs_type->is_signed();
-    switch (e->kind()) {
-    case EXPR_MUL: { // *
-        auto inst = iinst("mul", width, is_signed);
-        emit(inst, src);
-        return;
-    }
-    case EXPR_DIV: { // /
-        emit_idiv(lhs_type);
-        return;
-    }
-    case EXPR_MOD: { // %
-        emit_idiv(lhs_type);
-        emit(m, dreg(width), dest);
-        return;
-    case EXPR_ADD: { // +
-        auto inst = iinst("add", width);
-        emit(inst, src, dest);
-        return;
-    }
-    case EXPR_SUB: { // -
-        auto inst = iinst("sub", width);
-        emit(inst, src, dest);
-        return;
-    }
-    case EXPR_BLS:   // <<
-    case EXPR_BRS: { // >>
-        auto inst = e->kind() == EXPR_BLS ? "shl" : is_signed ? "sar" : "shr";
-        emit("movq", r11, rcx);
-        emit(iinst(inst, width), cl, idest(width));
-        return;
-    }
-    case EXPR_LESS: // <
-        emit_icmp(is_signed ? "setl" : "setb", width);
-        return;
-    case EXPR_LEQUAL: // <=
-        emit_icmp(is_signed ? "setle" : "setbe", width);
-        return;
-    case EXPR_GREATER: // >
-        emit_icmp(is_signed ? "setg" : "seta", width);
-        return;
-    case EXPR_GEQUAL: // >=
-        emit_icmp(is_signed ? "setge" : "setae", width);
-        return;
-    case EXPR_EQUAL: // ==
-        emit_icmp("sete", width);
-        return;
-    case EXPR_NEQUAL: // !=
-        emit_icmp("setne", width);
-        return;
-    case EXPR_BAND: { // &
-        auto inst = iinst("and", width);
-        emit(inst, src, dest);
-        return;
-    }
-    case EXPR_BXOR: { // ^
-        auto inst = iinst("xor", width);
-        emit(inst, src, dest);
-        return;
-    }
-    case EXPR_BOR: { // |
-        auto inst = iinst("or", width);
-        emit(inst, src, dest);
-        return;
-    }
-    default:
-        error("not a valid binary operator.");
-    }
-    }
-}
+
 void Generator::emit_float_binary(Binary *e) {
     // type info
     auto type  = e->lhs()->type();
@@ -834,50 +730,44 @@ void Generator::emit_float_binary(Binary *e) {
     auto m   = fmov(width);
     emit(m, dest, src);
     pop(dest, width, true);
-    switch (e->kind()) {
-    case EXPR_MUL: { // *
+    switch (e->token()->get_type()) {
+    case '*': { // *
         auto inst = finst("mul", width);
         emit(inst, src, dest);
         return;
     }
-    case EXPR_DIV: { // /
+    case '/': { // /
         emit_fdiv(type);
         return;
     }
-    case EXPR_ADD: { // +
+    case '+': { // +
         auto inst = finst("add", width);
         emit(inst, src, dest);
         return;
     }
-    case EXPR_SUB: { // -
+    case '-': { // -
         auto inst = finst("sub", width);
         emit(inst, src, dest);
         return;
     }
-    case EXPR_LESS: // <
+    case '<': // <
         emit_fcmp("setb", width);
         return;
-    case EXPR_LEQUAL: // <=
+    case TK_LEQUAL: // <=
         emit_fcmp("setbe", width);
         return;
-    case EXPR_GREATER: // >
+    case '>': // >
         emit_fcmp("seta", width);
         return;
-    case EXPR_GEQUAL: // >=
+    case TK_GEQUAL: // >=
         emit_fcmp("setae", width);
         return;
-    case EXPR_EQUAL: // ==
+    case TK_EQUAL: // ==
         emit_fcmp("sete", width);
         return;
-    case EXPR_NEQUAL: // !=
+    case TK_NEQUAL: // !=
         emit_fcmp("setne", width);
         return;
-    case EXPR_MOD:  // %
-    case EXPR_BLS:  // <<
-    case EXPR_BRS:  // >>
-    case EXPR_BAND: // &
-    case EXPR_BXOR: // ^
-    case EXPR_BOR:  // |
     default:
         error("not a valid binary operator.");
     }
@@ -1062,60 +952,6 @@ void Generator::emit_oprands_for_integer_binary(Binary *e) {
     emit(m, dest, src);
     pop(dest, width, false);
 }
-// void Generator::visit_binary(Binary *e) {
-//     // if (e->lhs()->type()->is_pointer() || e->rhs()->type()->is_pointer()) {
-//     //     mqassert(e->kind() == EXPR_ADD || e->kind() == EXPR_SUB,
-//     //              "pointer operation only support + and -.");
-//     //     if (e->kind() == EXPR_ADD) {
-//     //         Expr *nexpr, *pexpr;
-//     //         if (e->lhs()->type()->is_pointer()) {
-//     //             pexpr = e->lhs();
-//     //             nexpr = e->rhs();
-//     //         } else {
-//     //             pexpr = e->rhs();
-//     //             nexpr = e->lhs();
-//     //         }
-//     //         visit(new Binary(EXPR_MUL, nullptr, nexpr,
-//     //                          new IntConst(nullptr, pexpr->type()->point_to()->size())));
-//     //         push(rax, 8, false);
-//     //         visit(pexpr);
-//     //         pop(r11, 8, false);
-//     //         emit("addq", r11, rax);
-//     //     } else {
-//     //         visit(e->lhs());
-//     //         push(rax, 8, false);
-//     //         visit(e->rhs());
-//     //         push(rax, 8, false);
-//     //     }
-//     //     return;
-//     // }
-//     // type of binary expression may be different from its oprands.
-//     // like compare expression or logical expression
-//     if (e->lhs()->type()->is_float()) {
-//         switch (e->kind()) {
-//         case EXPR_LAND: { // &&
-//             emit_logic(e, true);
-//             return;
-//         }
-//         case EXPR_LOR: { // ||
-//             emit_logic(e, false);
-//             return;
-//         }
-//         default:
-//             emit_float_binary(e);
-//         }
-//     } else {
-//         switch (e->kind()) {
-//         case EXPR_LAND: // &&
-//             visit(e->lhs());
-//             return;
-//         case EXPR_LOR: // ||
-//             return;
-//         default:
-//             emit_ibin(e);
-//         }
-//     }
-// }
 
 // labeled
 void Generator::visit_labeled(Labeled *l) {

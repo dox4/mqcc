@@ -61,32 +61,7 @@ void Goto::accept(Visitor *v) { v->visit_goto(this); }
 void Continue::accept(Visitor *v) { v->visit_continue(this); }
 void Break::accept(Visitor *v) { v->visit_break(this); }
 
-/// ReturnStmt
-
 void Return::accept(Visitor *v) { v->visit_return(this); }
-
-/// ReturnStmt end
-
-/// BinaryExpr
-
-// void Binary::accept(Visitor *visitor) { visitor->visit_binary(this); }
-
-// const Type *Binary::type() const noexcept {
-//     if (_token == nullptr) {
-//         if (kind() == EXPR_DIV)
-//             return &BuiltinType::Long;
-//         if (kind() == EXPR_ADD)
-//             return _lhs->type()->is_pointer() ? _lhs->type() : _rhs->type();
-//         if (kind() == EXPR_SUB)
-//             return _lhs->type();
-//         unreachable();
-//     }
-//     if (_token->is_comparator() || _token->get_type() == TK_LAND || _token->get_type() == TK_LOR)
-//         return &BuiltinType::Int;
-//     return _lhs->type();
-// }
-
-/// BinaryExpr end
 
 void Multi::accept(Visitor *v) { v->visit_mult(this); }
 
