@@ -184,7 +184,7 @@ const Token *Scanner::get_number() {
 
 const Token *Scanner::get_name_or_keyword() {
     auto start = _sp->current();
-    while (isalnum(peek())) {
+    while (isalnum(peek()) || peek() == '_') {
         next();
     }
     auto end  = _sp->current();

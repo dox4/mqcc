@@ -634,7 +634,6 @@ void Generator::visit_func_def(FuncDef *fd) {
         auto type = arg->type();
         auto name = arg->token()->get_lexeme();
         if (type->is_arithmetic() || type->is_pointer()) {
-            emit("# ", "string");
             auto addr =
                 ObjAddr::base_addr(scope->find_var_in_local(name)->offset(), rbp)->to_string();
             if (type->is_integer())
@@ -707,7 +706,6 @@ void Generator::emit_derefed_additive(Add *a) {
         push(rax, 8, false);
         visit(lhs);
         pop(r11, 8, false);
-        emit("# ", a->token()->get_type(), "");
         // both '+' and '[' emit "addq"
         emit(a->token()->get_type() == '-' ? "subq" : "addq", r11, rax);
     }
@@ -1270,13 +1268,8 @@ void LValueGenerator::visit_identifier(Identifier *ident) {
     _gtr->emit("#", sp->get_file_name(), to_string(sp->get_line()));
     _gtr->emit("#", sp->current_line());
     if (obj != nullptr) {
-        //  if (obj->offset() >= 0) {
-        //      auto reg = reg_args[obj->offset()][obj->type()->size()];
-        //      _obj_addr.emplace(ObjAddr::direct(reg));
-        //  } else {
         auto stack_offset = obj->offset();
         _obj_addr.emplace(ObjAddr::base_addr(stack_offset, rbp));
-        //  }
     }
 }
 void LValueGenerator::vist_subscription(Subscript *s) {

@@ -125,6 +125,10 @@ const Type *FuncCall::type() const noexcept {
 }
 
 /// FuncCallExpr end
+void StringLiteral::accept(Visitor *v) { v->visit_string_literal(this); }
+const Type *StringLiteral::type() const noexcept {
+    return new ArrayType(&BuiltinType::Char, strlen(_token->get_lexeme()) + 1);
+}
 
 void Assignment::accept(Visitor *v) { v->visit_assignment(this); }
 void Conv::accept(Visitor *v) { v->visit_conv(this); }

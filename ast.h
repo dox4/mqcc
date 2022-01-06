@@ -330,8 +330,8 @@ class StringLiteral : public Const {
   public:
     explicit StringLiteral(const Token *literal) : Const(EXPR_STR), _token(literal){};
     const char *get_value() const noexcept { return _token->get_lexeme(); }
-    virtual void accept(Visitor *) {}
-    // virtual const Type *type() const noexcept;
+    virtual void accept(Visitor *);
+    virtual const Type *type() const noexcept;
 
   private:
     const Token *_token;
