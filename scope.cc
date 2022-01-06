@@ -1,5 +1,6 @@
 #include "scope.h"
 #include "type.h"
+#include <cstdint>
 #include <sstream>
 using namespace std;
 
@@ -46,9 +47,8 @@ Object *Scope::find_var(const std::string_view &name) const {
 
 void Scope::push_var(std::string_view ident, Object *obj) {
     auto size = obj->type()->size();
-    if (obj->offset() == INT32_MIN)
-        obj->set_offset(_offset -= size);
-    _vars.insert({ident, obj}); 
+    _offset += size;
+    _vars.insert({ident, obj});
 }
 
 Scope *Scope::drill_down() { return new Scope(this); }

@@ -76,7 +76,8 @@ class Parser {
     const HalfType *parse_direct_declarator(const Type *);
     std::vector<const HalfType *> parse_parameters();
     const HalfType *parse_parameter();
-    Type *parse_array_or_func_decl(const Type *base, const char *name);
+    Expr *parse_array_dimen();
+    Type *parse_func_or_array_decl(const Type *base, const char *name);
 
     Block *parse_declaration();
     Decl *parse_decl(type_counter_t, Declarator *);
@@ -91,6 +92,16 @@ class Parser {
     Expr *parse_cast();
 
     Expr *parse_binary(int);
+    Expr *parse_mult();
+    Expr *parse_add();
+    Expr *parse_shift();
+    Expr *parse_relational();
+    Expr *parse_equality();
+    Expr *parse_bit_and();
+    Expr *parse_xor();
+    Expr *parse_bit_or();
+    Expr *parse_log_and();
+    Expr *parse_log_or();
 
     Expr *parse_conditional();
     Expr *parse_assignment();

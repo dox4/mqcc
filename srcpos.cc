@@ -18,7 +18,7 @@ void SourcePosition::next() {
 const char *SourcePosition::current_line() const {
     auto end   = _src.find('\n', _index - 1);
     auto start = _src.find_last_of('\n', _index - 1);
-    const char *line = strndup(_src.c_str() + start + 1, end - start);
+    const char *line = strndup(_src.c_str() + start + 1, end - start - 1);
     return line;
 }
 

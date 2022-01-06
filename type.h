@@ -1,6 +1,8 @@
 #ifndef _MQCC_TYPE_H__
 #define _MQCC_TYPE_H__
 #include "error.h"
+#include <cstddef>
+#include <cstdint>
 #include <stdint.h>
 #include <string>
 #include <string_view>
@@ -42,7 +44,7 @@ class Type {
     // static const Type *Dummy;
     TypeKind kind() const noexcept { return _kind; }
     virtual const std::string normalize() const = 0;
-    virtual const int size() const noexcept { return _size; };
+    virtual const std::uint64_t size() const noexcept { return _size; };
     virtual std::string_view name() const { return _name; }
     virtual bool is_void() const noexcept { return false; }
     virtual bool is_arithmetic() const noexcept { return false; }
@@ -51,6 +53,11 @@ class Type {
     virtual bool is_integer() const noexcept { return false; }
     virtual bool is_signed() const noexcept { return false; }
     virtual bool is_pointer() const noexcept { return false; }
+    virtual bool is_derefed() const noexcept { return false; }
+    virtual const Type *derefed() const noexcept {
+        unimplement();
+        return nullptr;
+    }
     virtual bool equals_to(const Type *other) const { return this == other; }
     virtual bool is_compitable_with(const Type *other) const { return this == other; }
     virtual const Type *point_to() const {
@@ -58,6 +65,7 @@ class Type {
         return nullptr;
     }
     virtual bool is_function() const noexcept { return false; }
+    virtual bool is_array() const noexcept { return false; }
     // virtual const int align() const = 0;
     // virtual bool is_atomic() const  = 0;
 };
@@ -140,7 +148,7 @@ class BuiltinType : public Type {
     static const BuiltinType Double;
     static const BuiltinType LDouble;
     virtual const std::string normalize() const { return _normalize; }
-    virtual const int size() const noexcept { return _size; }
+    virtual const std::uint64_t size() const noexcept { return _size; }
     virtual bool is_signed() const noexcept { return _is_signed; }
     virtual bool is_arithmetic() const noexcept { return this != &Void; }
     virtual bool is_void() const noexcept { return this == &Void; }
@@ -160,13 +168,24 @@ class BuiltinType : public Type {
     }
 };
 
-class PointerType : public Type {
+class Derefed : public Type {
   public:
-    explicit PointerType(const Type *point_to) : Type(TY_PTR, 8, ""), _point_to(point_to) {}
+    explicit Derefed(const Type *derefed, TypeKind kind, std::uint64_t size)
+        : Type(kind, size, ""), _derefed(derefed) {}
+    virtual bool is_derefed() const noexcept { return true; }
+    virtual const Type *derefed() const noexcept { return _derefed; }
+
+  private:
+    const Type *_derefed;
+};
+
+class PointerType : public Derefed {
+  public:
+    explicit PointerType(const Type *point_to) : Derefed(point_to, TY_PTR, 8) {}
     static const PointerType *point_to(const Type *type);
-    virtual const Type *point_to() const { return _point_to; }
-    virtual const std::string normalize() const { return _point_to->normalize() + "*"; }
-    virtual const int size() const noexcept { return 8; };
+    virtual const Type *point_to() const { return derefed(); }
+    virtual const std::string normalize() const { return derefed()->normalize() + "*"; }
+    virtual const std::uint64_t size() const noexcept { return 8; };
     virtual bool is_pointer() const noexcept { return true; }
     virtual bool is_compitable_with(const Type *that) const {
         if (Type::is_compitable_with(that)) {
@@ -184,9 +203,6 @@ class PointerType : public Type {
         }
         return false;
     }
-
-  private:
-    const Type *_point_to;
 };
 
 class StructType : public Type {
@@ -194,7 +210,22 @@ class StructType : public Type {
     std::vector<Object *> _members;
 };
 class UnionType : public StructType {};
-class ArrayType : public Type {};
+class ArrayType : public Derefed {
+  public:
+    explicit ArrayType(const Type *base, size_t size)
+        : Derefed(base, TY_ARRAY, base->size() * size), _cap(size) {}
+    virtual const Type *elem_type() const noexcept { return derefed(); }
+    size_t cap() const noexcept { return _cap; }
+
+    virtual const std::string normalize() const {
+        return elem_type()->normalize() + "[" + std::to_string(_cap) + "]";
+    }
+    virtual bool is_array() const noexcept { return true; }
+    virtual const std::uint64_t size() const noexcept { return _size; };
+
+  private:
+    size_t _cap;
+};
 class FuncType : public Type {
   public:
     explicit FuncType(const Type *ret, std::string_view name)
@@ -204,7 +235,7 @@ class FuncType : public Type {
     const std::vector<const HalfType *> parameters() const noexcept { return _params; }
     const Type *return_type() const noexcept { return _ret; }
     virtual const std::string normalize() const;
-    virtual const int size() const noexcept { return 1; };
+    virtual const std::uint64_t size() const noexcept { return 1; };
     virtual bool equals_to(const Type *other) const;
     virtual bool is_function() const noexcept { return true; }
 

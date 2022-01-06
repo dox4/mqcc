@@ -3,6 +3,7 @@
 #include "error.h"
 #include "token.h"
 #include "type.h"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -10,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 using namespace std;
 
@@ -184,7 +186,7 @@ static const string_view &isrc(int width) {
 
 static const string_view rdest(int width, bool isfloat) { return isfloat ? fdest() : idest(width); }
 
-static const string_view rsrc(int width, bool isfloat) { return isfloat ? fsrc() : isrc(width); }
+// static const string_view rsrc(int width, bool isfloat) { return isfloat ? fsrc() : isrc(width); }
 
 static const string addr(const string_view &reg) {
     stringstream s;
@@ -324,6 +326,10 @@ Generator::Generator(TransUnit *unit) : _unit(unit) {}
 Generator::~Generator() {}
 
 void Generator::push(const std::string_view &reg, int width, bool isfloat) {
+    if (width == 8) {
+        emit("push", reg);
+        return;
+    }
     if (isfloat) {
         _offset -= width;
         emit(fmov(width), reg, onto_stack(_offset));
@@ -331,8 +337,13 @@ void Generator::push(const std::string_view &reg, int width, bool isfloat) {
     }
     _offset -= width;
     emit(mov(width), reg, onto_stack(_offset));
+    emit("subq", width, rsp);
 }
 void Generator::pop(const std::string_view &reg, int width, bool isfloat) {
+    if (width == 8) {
+        emit("pop", reg);
+        return;
+    }
     if (isfloat) {
         emit(fmov(width), onto_stack(_offset), reg);
         _offset += width;
@@ -340,6 +351,7 @@ void Generator::pop(const std::string_view &reg, int width, bool isfloat) {
     }
     emit(mov(width), onto_stack(_offset), reg);
     _offset += width;
+    emit("addq", width, rsp);
 }
 void Generator::restore() {}
 
@@ -359,13 +371,6 @@ void Generator::emit_idiv(const Type *type) {
         // all values of integers with width under 4
         emit("cltd");
         emit("idivl", r11d);
-        // if (is_singed) {
-        //     emit("cltd");
-        //     emit(get_inst("idiv", width), r11d);
-        // } else {
-        //     emit("xor", edx, edx);
-        //     emit(get_inst("div", width), r11d);
-        // }
     } else {
         // emit instructions for long and quad
         if (is_singed) {
@@ -447,7 +452,6 @@ void Generator::emit_data() {
 void Generator::emit_text() {}
 
 void Generator::emit_cvt(const Type *from, const Type *to) {
-    // debug("from type %s to type %s", from->normalize().c_str(), to->normalize().c_str());
     if (to->is_float()) {
         emit_cvt_to_float(from, to);
     } else {
@@ -479,6 +483,7 @@ void Generator::emit_promot_int(const Type *from) {
         return;
     case TY_LONG:
     case TY_PTR:
+    case TY_ARRAY:
         return;
     default:
         error("type %s could not be converted to integer.", from->normalize().c_str());
@@ -538,7 +543,6 @@ const string Generator::add_rodata(const string str) {
 const string Generator::add_rodata(const double dval) {
     auto fau_label     = float_label();
     const uint64_t val = *reinterpret_cast<const uint64_t *>(&dval);
-    // debug("fau_label: %s, with value: %lf", fau_label.c_str(), dval);
     _rodata.push_back(new NumRoData<uint64_t>(fau_label, val));
     return fau_label;
 }
@@ -561,7 +565,7 @@ void Generator::gen() {
     emit_data();
 }
 
-void Generator::visit_func_call(FuncCallExpr *fc) {
+void Generator::visit_func_call(FuncCall *fc) {
     // TODO float numbers and arguments with size larger than 8
     // process args
     auto args = fc->args();
@@ -591,6 +595,12 @@ void Generator::visit_func_call(FuncCallExpr *fc) {
     }
 }
 
+void Generator::vist_subscription(Subscript *sub) { _lvgtr->visit(sub->array()); }
+
+void Generator::visit_postfix_inc(PostInc *inc) {}
+
+void Generator::visit_postfix_dec(PostDec *dec) {}
+
 void Generator::visit_func_def(FuncDef *fd) {
     // record current function and generate return label
     _current_fn.def       = fd;
@@ -607,12 +617,38 @@ void Generator::visit_func_def(FuncDef *fd) {
     // cache %rbp
     emit("pushq", rbp);
     emit("movq", rsp, rbp);
-
+    // allocate stack frame and set offset of local variables
+    auto scope = fd->body()->scope();
+    int offset = scope->offset();
+    emit("subq", offset, rsp);
+    _offset = offset = -offset;
+    for (auto var : scope->local_vars()) {
+        var.second->set_offset(offset);
+        offset += var.second->type()->size();
+    }
+    mqassert(offset == 0, "after allocating all local variables, offset should be 0.");
+    // move arguments onto stack
+    auto sig      = fd->signature();
+    int float_idx = 0, integer_idx = 0;
+    for (auto arg : sig->parameters()) {
+        auto type = arg->type();
+        auto name = arg->token()->get_lexeme();
+        if (type->is_arithmetic() || type->is_pointer()) {
+            emit("# ", "string");
+            auto addr =
+                ObjAddr::base_addr(scope->find_var_in_local(name)->offset(), rbp)->to_string();
+            if (type->is_integer())
+                emit(mov(type->size()), reg_args[integer_idx++][8 - type->size()], addr);
+            else
+                emit(fmov(type->size()), xmm[float_idx++], addr);
+        }
+    }
     // function body
     visit_block(fd->body());
 
     // return
     emit_label(_current_fn.ret_label);
+    emit("movq", rbp, rsp);
     emit("popq", rbp);
     emit("retq");
 }
@@ -643,10 +679,48 @@ void Generator::visit_string_literal(StringLiteral *str) {
 
 void Generator::emit_iset0(const string_view &reg) { emit("xorq", reg, reg); }
 void Generator::emit_fset0(const string_view &freg) { emit("pxor", freg, freg); }
-void Generator::emit_ibin(BinaryExpr *e) {
+void Generator::emit_arithmetic_integer_additive(Add *a) {
+    emit_oprands_for_integer_binary(a);
+    auto width = a->lhs()->type()->size();
+    auto src = isrc(width), dest = idest(width);
+    emit(iinst(a->token()->get_type() == '+' ? "add" : "sub", width), src, dest);
+}
+void Generator::emit_derefed_additive(Add *a) {
+    // lhs must be derefed
+    auto lhs  = a->lhs();
+    auto rhs  = a->rhs();
+    auto type = lhs->type();
+    if (rhs->type()->is_derefed()) {
+        visit(rhs);
+        push(rax, 8, false);
+        visit(lhs);
+        pop(r11, 8, false);
+        emit("subq", r11, rax);
+        emit("movq", type->derefed()->size(), r11);
+        emit("divq", r11);
+    } else {
+        const Type *base = type->derefed();
+        visit(rhs);
+        emit_promot_int(rhs->type());
+        emit("movq", base->size(), r11);
+        emit("mulq", r11);
+        push(rax, 8, false);
+        visit(lhs);
+        pop(r11, 8, false);
+        emit("# ", a->token()->get_type(), "");
+        // both '+' and '[' emit "addq"
+        emit(a->token()->get_type() == '-' ? "subq" : "addq", r11, rax);
+    }
+}
+void Generator::emit_additive(Binary *b) {}
+void Generator::emit_ibin(Binary *e) {
+    if (e->kind() == EXPR_ADD || e->kind() == EXPR_SUB) {
+        emit_additive(e);
+        return;
+    }
     // type info
-    auto type  = e->lhs()->type();
-    auto width = type->size();
+    auto lhs_type = e->lhs()->type();
+    auto width    = lhs_type->size();
     // generate code for lhs
     visit(e->lhs());
     // cache the result of lhs
@@ -654,7 +728,19 @@ void Generator::emit_ibin(BinaryExpr *e) {
     push(dest, width, false);
     // generate code for rhs
     // result of rhs is stored at dest reg
+    // if lhs is a pointer or an array
+    // the rhs should be scaled by the size of the base type
+    //   if (lhs_type->is_array()) {
+    //       auto size = static_cast<const ArrayType *>(e->lhs()->type())->elem_type()->size();
+    //       visit(new Binary(EXPR_MUL, nullptr, new Conv(&BuiltinType::ULong, e->rhs()),
+    //                        new IntConst(nullptr, size)));
+    //   } else if (lhs_type->is_pointer()) {
+    //       auto size = static_cast<const PointerType *>(e->lhs()->type())->point_to()->size();
+    //       visit(new Binary(EXPR_MUL, nullptr, new Conv(&BuiltinType::ULong, e->rhs()),
+    //                        new IntConst(nullptr, size)));
+    //   } else {
     visit(e->rhs());
+    //   }
     auto src = isrc(width);
     auto m   = mov(width);
     // mov rhs to src reg and pop lhs to dest reg
@@ -662,7 +748,7 @@ void Generator::emit_ibin(BinaryExpr *e) {
     // it's necessary for div and sub, but unnecessary for add and mul
     emit(m, dest, src);
     pop(dest, width, false);
-    auto is_signed = type->is_signed();
+    auto is_signed = lhs_type->is_signed();
     switch (e->kind()) {
     case EXPR_MUL: { // *
         auto inst = iinst("mul", width, is_signed);
@@ -670,11 +756,11 @@ void Generator::emit_ibin(BinaryExpr *e) {
         return;
     }
     case EXPR_DIV: { // /
-        emit_idiv(type);
+        emit_idiv(lhs_type);
         return;
     }
     case EXPR_MOD: { // %
-        emit_idiv(type);
+        emit_idiv(lhs_type);
         emit(m, dreg(width), dest);
         return;
     case EXPR_ADD: { // +
@@ -732,7 +818,7 @@ void Generator::emit_ibin(BinaryExpr *e) {
     }
     }
 }
-void Generator::emit_fbin(BinaryExpr *e) {
+void Generator::emit_float_binary(Binary *e) {
     // type info
     auto type  = e->lhs()->type();
     auto width = type->size();
@@ -803,7 +889,7 @@ void Generator::emit_fbin(BinaryExpr *e) {
 //      code for rhs...
 // .LNOT
 
-void Generator::emit_logic(BinaryExpr *e, bool isand) {
+void Generator::emit_logic(Binary *e, bool isand) {
     auto cmpf_set = [this](Expr *e) {
         emit_fset0(fsrc());
         emit(finst("ucomi", e->type()->size()), fdest(), fsrc());
@@ -842,34 +928,194 @@ void Generator::emit_logic(BinaryExpr *e, bool isand) {
         emit("movq", 1, rax);
     emit_label(lend);
 }
-void Generator::visit_binary(BinaryExpr *e) {
-    // type of binary expression may be different from its oprands.
-    // like compare expression or logical expression
+
+void Generator::visit_mult(Multi *e) {
     if (e->lhs()->type()->is_float()) {
-        switch (e->kind()) {
-        case EXPR_LAND: { // &&
-            emit_logic(e, true);
-            return;
-        }
-        case EXPR_LOR: { // ||
-            emit_logic(e, false);
-            return;
-        }
-        default:
-            emit_fbin(e);
-        }
+        emit_float_binary(e);
+        return;
+    }
+    // emit code for integer multi or divide
+    emit_oprands_for_integer_binary(e);
+    auto lhs_type = e->lhs()->type();
+    auto width    = lhs_type->size();
+    auto dest     = idest(width);
+    auto src      = isrc(width);
+    switch (e->token()->get_type()) {
+    case '*': { // *
+        auto is_signed = lhs_type->is_signed();
+        auto inst      = iinst("mul", width, is_signed);
+        emit(inst, src);
+        return;
+    }
+    case '/': { // /
+        emit_idiv(lhs_type);
+        return;
+    }
+    case '%': { // %
+        emit_idiv(lhs_type);
+        emit(mov(width), dreg(width), dest);
+        return;
+    }
+    }
+}
+
+void Generator::visit_additive(Add *e) {
+    if (e->lhs()->type()->is_float()) {
+        emit_float_binary(e);
     } else {
-        switch (e->kind()) {
-        case EXPR_LAND: // &&
-            visit(e->lhs());
+        // parser ensures that if one of the oprands is derefed, it will be placed at lhs
+        if (e->lhs()->type()->is_derefed())
+            emit_derefed_additive(e);
+        else
+            emit_arithmetic_integer_additive(e);
+    }
+}
+
+void Generator::visit_shift(Shift *e) {
+    emit_oprands_for_integer_binary(e);
+    auto width = e->lhs()->type()->size();
+    const char *inst;
+    switch (e->token()->get_type()) {
+    case TK_LSHIFT: // <<
+        inst = "shl";
+        break;
+    case TK_RSHIFT: { // >>
+        auto is_signed = e->lhs()->type()->is_signed();
+        inst           = is_signed ? "sar" : "shr";
+        break;
+    }
+    default:
+        unreachable();
+    }
+    emit("movq", r11, rcx);
+    emit(iinst(inst, width), cl, idest(width));
+}
+
+void Generator::visit_relational(Relational *e) {
+    if (e->lhs()->type()->is_float()) {
+        emit_float_binary(e);
+    } else {
+        emit_oprands_for_integer_binary(e);
+        auto is_signed = e->lhs()->type()->is_signed();
+        auto width     = e->lhs()->type()->size();
+        switch (e->token()->get_type()) {
+        case '<':
+            emit_icmp(is_signed ? "setl" : "setb", width);
             return;
-        case EXPR_LOR: // ||
+        case TK_LEQUAL: // <=
+            emit_icmp(is_signed ? "setle" : "setbe", width);
             return;
-        default:
-            emit_ibin(e);
+        case '>':
+            emit_icmp(is_signed ? "setg" : "seta", width);
+            return;
+        case TK_GEQUAL: // >=
+            emit_icmp(is_signed ? "setge" : "setae", width);
+            return;
+        case TK_EQUAL: // ==
+            emit_icmp("sete", width);
+            return;
+        case TK_NEQUAL: // !=
+            emit_icmp("setne", width);
+            return;
         }
     }
 }
+
+void Generator::visit_bitwise(Bitwise *e) {
+    string inst;
+    emit_oprands_for_integer_binary(e);
+    auto width = e->lhs()->type()->size();
+    switch (e->token()->get_type()) {
+    case '&': // &
+        inst = iinst("and", width);
+        break;
+    case '^': // ^
+        inst = iinst("xor", width);
+        break;
+    case '|': // |
+        inst = iinst("or", width);
+        break;
+    default:
+        unreachable();
+    }
+    emit(inst, isrc(width), idest(width));
+}
+void Generator::visit_logical(Logical *l) { emit_logic(l, l->token()->get_type() == TK_LAND); }
+
+void Generator::emit_oprands_for_integer_binary(Binary *e) {
+    // type info
+    auto lhs_type = e->lhs()->type();
+    auto width    = lhs_type->size();
+    // generate code for lhs
+    visit(e->lhs());
+    // cache the result of lhs
+    auto dest = idest(width);
+    push(dest, width, false);
+    // generate code for rhs
+    // result of rhs is stored at dest reg
+    visit(e->rhs());
+    auto src = isrc(width);
+    auto m   = mov(width);
+    // mov rhs to src reg and pop lhs to dest reg
+    // to keep the oprands order in assembly as the same as in the C code
+    // it's necessary for div and sub, but unnecessary for add and mul
+    emit(m, dest, src);
+    pop(dest, width, false);
+}
+// void Generator::visit_binary(Binary *e) {
+//     // if (e->lhs()->type()->is_pointer() || e->rhs()->type()->is_pointer()) {
+//     //     mqassert(e->kind() == EXPR_ADD || e->kind() == EXPR_SUB,
+//     //              "pointer operation only support + and -.");
+//     //     if (e->kind() == EXPR_ADD) {
+//     //         Expr *nexpr, *pexpr;
+//     //         if (e->lhs()->type()->is_pointer()) {
+//     //             pexpr = e->lhs();
+//     //             nexpr = e->rhs();
+//     //         } else {
+//     //             pexpr = e->rhs();
+//     //             nexpr = e->lhs();
+//     //         }
+//     //         visit(new Binary(EXPR_MUL, nullptr, nexpr,
+//     //                          new IntConst(nullptr, pexpr->type()->point_to()->size())));
+//     //         push(rax, 8, false);
+//     //         visit(pexpr);
+//     //         pop(r11, 8, false);
+//     //         emit("addq", r11, rax);
+//     //     } else {
+//     //         visit(e->lhs());
+//     //         push(rax, 8, false);
+//     //         visit(e->rhs());
+//     //         push(rax, 8, false);
+//     //     }
+//     //     return;
+//     // }
+//     // type of binary expression may be different from its oprands.
+//     // like compare expression or logical expression
+//     if (e->lhs()->type()->is_float()) {
+//         switch (e->kind()) {
+//         case EXPR_LAND: { // &&
+//             emit_logic(e, true);
+//             return;
+//         }
+//         case EXPR_LOR: { // ||
+//             emit_logic(e, false);
+//             return;
+//         }
+//         default:
+//             emit_float_binary(e);
+//         }
+//     } else {
+//         switch (e->kind()) {
+//         case EXPR_LAND: // &&
+//             visit(e->lhs());
+//             return;
+//         case EXPR_LOR: // ||
+//             return;
+//         default:
+//             emit_ibin(e);
+//         }
+//     }
+// }
 
 // labeled
 void Generator::visit_labeled(Labeled *l) {
@@ -931,7 +1177,8 @@ void Generator::visit_while(While *w) {
     // emit code
     emit_label(bl);
     visit(w->cond());
-    emit("jz", el);
+    emit("cmpq", 0, rax);
+    emit("je", el);
     visit(w->body());
     emit("jmp", bl);
     emit_label(el);
@@ -1014,18 +1261,12 @@ void Generator::visit_assignment(Assignment *assignment) {
     emit(mov(size), rdest(size, isfloat), addr);
 }
 void Generator::visit_block(Block *block) {
-    auto bak_scope  = _current_scope;
-    _current_scope  = block->scope();
-    auto bak_offset = _offset;
-    _offset         = _current_scope->offset();
-    // debug("visiting block, scope size: %zu", _current_scope->size());
-    // debug("obj in scope:\n%s", _current_scope->obj_to_string().c_str());
+    auto bak_scope = _current_scope;
+    _current_scope = block->scope();
     for (auto item : block->items()) {
         visit(item);
     }
-    // debug("visiting block, scope size: %zu", _current_scope->size());
     _current_scope = bak_scope;
-    _offset        = bak_offset;
 }
 
 void Generator::visit_init_declarator(InitDeclarator *id) {
@@ -1046,33 +1287,35 @@ void Generator::visit_init_declarator(InitDeclarator *id) {
 }
 
 void Generator::visit_initializer(Initializer *init) {
-    // debug("visit initializer");
     visit(init->assignment());
 }
 
 void Generator::visit_identifier(Identifier *ident) {
-    auto obj = _current_scope->find_var_in_local(ident->get_value());
-    // debug("obj is null? %d", obj == nullptr);
+    auto obj  = _current_scope->find_var_in_local(ident->get_value());
     auto type = obj->type();
     auto size = type->size();
-    // debug("obj: { name: '%s', type: '%s', size: %d' }", obj->ident()->get_lexeme(),
-    //       type->normalize().c_str(), size);
-    if (type->is_float()) {
-        emit(fmov(size), simple_addr(obj), fdest());
+    _lvgtr->visit(ident);
+    auto addr = _lvgtr->addr();
+    if (obj->type()->is_scalar()) {
+        if (type->is_float()) {
+            emit(fmov(size), addr, fdest());
+        } else {
+            emit(mov(size), addr, idest(size));
+        }
     } else {
-        emit(mov(size), simple_addr(obj), idest(size));
+        emit("leaq", addr, rax);
     }
 }
 
-void Generator::visit_conv(ConvExpr *conv) {
+void Generator::visit_conv(Conv *conv) {
     visit(conv->expr());
     if (conv->type()->equals_to(conv->expr()->type()))
         return;
     emit_cvt(conv->expr()->type(), conv->type());
 }
 
-void Generator::visit_cast(CastExpr *) {}
-void Generator::visit_unary(UnaryExpr *ue) {
+void Generator::visit_cast(Cast *) {}
+void Generator::visit_unary(Unary *ue) {
     switch (ue->unary_type()) {
     case TK_INC: {
         // ++ expr => expr = expr + 1
@@ -1096,11 +1339,13 @@ void Generator::visit_unary(UnaryExpr *ue) {
     }
     case '*': {
         visit(ue->oprand());
-        auto valtype = ue->oprand()->type();
-        if (valtype->is_float()) {
-            emit(fmov(valtype->size()), addr(rax), fdest());
-        } else {
-            emit(mov(valtype->size()), addr(rax), idest(valtype->size()));
+        auto valtype = ue->type();
+        if (valtype->is_scalar()) {
+            if (valtype->is_float()) {
+                emit(fmov(valtype->size()), addr(rax), fdest());
+            } else {
+                emit(mov(valtype->size()), addr(rax), idest(valtype->size()));
+            }
         }
         return;
     }
@@ -1119,9 +1364,7 @@ void Generator::visit_unary(UnaryExpr *ue) {
         unimplement();
     case '&': {
         _lvgtr->visit(ue->oprand());
-        set_mark();
         emit("lea", _lvgtr->addr(), rax);
-        set_mark();
         return;
     }
     case '~':
@@ -1137,7 +1380,15 @@ string Generator::code() const { return _buffer.str(); }
 
 const string ObjAddr::to_string() const {
     stringstream ss;
-    ss << offset;
+    if (!holds_alternative<nullptr_t>(offset)) {
+        if (holds_alternative<string>(offset)) {
+            ss << get<string>(offset);
+        } else if (holds_alternative<string_view>(offset)) {
+            ss << get<string_view>(offset);
+        } else if (get<int>(offset) != 0) {
+            ss << get<int>(offset);
+        }
+    }
     if (!(base.empty() && index.empty())) {
         ss << "(";
         if (!base.empty()) {
@@ -1152,7 +1403,7 @@ const string ObjAddr::to_string() const {
 
 // LValueGenerator
 
-void LValueGenerator::visit_unary(UnaryExpr *ue) {
+void LValueGenerator::visit_unary(Unary *ue) {
     switch (ue->unary_type()) {
     case TK_INC: {
     }
@@ -1161,7 +1412,7 @@ void LValueGenerator::visit_unary(UnaryExpr *ue) {
     case '*': {
         _gtr->visit(ue->oprand());
         _gtr->emit("movq", rax, r10);
-        _addr.emplace(::addr(r10));
+        _obj_addr.emplace(ObjAddr::direct(::addr(r10)));
         return;
     }
     case '+': {
@@ -1183,13 +1434,19 @@ void LValueGenerator::visit_identifier(Identifier *ident) {
     _gtr->emit("#", sp->get_file_name(), to_string(sp->get_line()));
     _gtr->emit("#", sp->current_line());
     if (obj != nullptr) {
-        if (obj->offset() >= 0) {
-            auto reg = reg_args[obj->offset()][obj->type()->size()];
-            _addr.emplace(string(reg));
-        } else {
-            auto stack_offset = obj->offset();
-            _addr.emplace(ObjAddr::base_addr(stack_offset, rbp).to_string());
-        }
+        //  if (obj->offset() >= 0) {
+        //      auto reg = reg_args[obj->offset()][obj->type()->size()];
+        //      _obj_addr.emplace(ObjAddr::direct(reg));
+        //  } else {
+        auto stack_offset = obj->offset();
+        _obj_addr.emplace(ObjAddr::base_addr(stack_offset, rbp));
+        //  }
     }
+}
+void LValueGenerator::vist_subscription(Subscript *s) {
+    visit(s->array());
+    _gtr->emit("lea", _obj_addr.value()->to_string(), r10);
+    _gtr->visit(s->sub());
+    _gtr->emit("addq", rax, r10);
 }
 // LValueGenerator end

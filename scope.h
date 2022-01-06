@@ -2,6 +2,7 @@
 #define _MQCC_SCOPE_H__
 
 #include <cstddef>
+#include <map>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -44,6 +45,8 @@ class Scope {
     Scope *float_up();
     int offset() const noexcept { return _offset; }
 
+    std::map<std::string_view, Object *> local_vars() const noexcept { return _vars; }
+
     std::string obj_to_string() const;
 
   private:
@@ -54,7 +57,7 @@ class Scope {
     // typedefs
     std::unordered_map<std::string_view, Type *> _typedefs;
     // global variables, local variables or functions
-    std::unordered_map<std::string_view, Object *> _vars;
+    std::map<std::string_view, Object *> _vars;
 };
 
 #endif

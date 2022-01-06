@@ -25,7 +25,7 @@ void error_at(const Token *tok, const char *fmt, ...) {
     auto sp = tok->get_position();
     int indent =
         fprintf(stderr, "%s:%d:%d:", sp->get_file_name(), sp->get_line(), sp->get_column());
-    fprintf(stderr, "%s", sp->current_line());
+    fprintf(stderr, "%s\n", sp->current_line());
     fprintf(stderr, "%*s", indent + sp->get_column() - (int)strlen(tok->get_lexeme()) - 1, "");
     fprintf(stderr, "^ ");
     va_list ap;
@@ -39,7 +39,7 @@ void warn_at(const Token *tok, const char *fmt, ...) {
     auto sp = tok->get_position();
     int indent =
         fprintf(stderr, "%s:%d:%d:", sp->get_file_name(), sp->get_line(), sp->get_column());
-    fprintf(stderr, "%s", sp->current_line());
+    fprintf(stderr, "%s\n", sp->current_line());
     fprintf(stderr, "%*s", indent + sp->get_column() - (int)strlen(tok->get_lexeme()) - 1, "");
     fprintf(stderr, "^ ");
     va_list ap;
@@ -54,7 +54,7 @@ void warn_token(const Token *tk, const char *fmt, ...) {
         int len    = strlen(tk->get_lexeme());
         int indent = fprintf(stderr, "%s:%d:%d:", sp->get_file_name(), sp->get_line(),
                              sp->get_column() - len);
-        fprintf(stderr, "%s", sp->current_line());
+        fprintf(stderr, "%s\n", sp->current_line());
         fprintf(stderr, "%*s", indent + sp->get_column() - len - 1, "");
         fprintf(stderr, "^ ");
         va_list ap;

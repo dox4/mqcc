@@ -2,12 +2,14 @@
 #define _MQCC_GENERATOR_H__
 
 #include "ast.h"
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 /// forward declaration
@@ -16,7 +18,7 @@
 // class AstNode;
 // class TransUnit;
 // class FuncDef;
-// class FuncCallExpr;
+// class FuncCall;
 //
 // class ReturnStmt;
 
@@ -34,22 +36,33 @@ class Visitor {
     // visit functions
     virtual void visit(AstNode *);
     // expressions
+    // primary
     virtual void visit_int_const(IntConst *)           = 0;
     virtual void visit_float_const(FloatConst *)       = 0;
     virtual void visit_string_literal(StringLiteral *) = 0;
-    virtual void visit_binary(BinaryExpr *)            = 0;
-    virtual void visit_func_call(FuncCallExpr *fd)     = 0;
-    virtual void visit_assignment(Assignment *)        = 0;
     virtual void visit_identifier(Identifier *)        = 0;
-    virtual void visit_conv(ConvExpr *)                = 0;
-    virtual void visit_cast(CastExpr *)                = 0;
-    virtual void visit_unary(UnaryExpr *)              = 0;
+    // postfix
+    virtual void visit_func_call(FuncCall *)    = 0;
+    virtual void vist_subscription(Subscript *) = 0;
+    virtual void visit_postfix_inc(PostInc *)   = 0;
+    virtual void visit_postfix_dec(PostDec *)   = 0;
+    // others
+    virtual void visit_unary(Unary *) = 0;
+    virtual void visit_cast(Cast *)   = 0;
+    virtual void visit_conv(Conv *)   = 0;
+    // binary
+    // virtual void visit_binary(Binary *)         = 0;
+    virtual void visit_mult(Multi *)            = 0;
+    virtual void visit_additive(Add *)          = 0;
+    virtual void visit_shift(Shift *)           = 0;
+    virtual void visit_relational(Relational *) = 0;
+    virtual void visit_bitwise(Bitwise *)       = 0;
+    virtual void visit_logical(Logical *)       = 0;
+    virtual void visit_assignment(Assignment *) = 0;
     // statements
     virtual void visit_func_def(FuncDef *fd) = 0;
     // labeled
     virtual void visit_labeled(Labeled *) = 0;
-    // virtual void visit_case(Case *)       = 0;
-    // virtual void visit_default(Default *) = 0;
     // selection
     virtual void visit_ifelse(IfElse *) = 0;
     virtual void visit_switch(Switch *) = 0;
@@ -72,24 +85,26 @@ class Generator;
 struct ObjAddr {
     // addr = offset (base, index, scale)
     // addr = offset + (base + index * scale)
-    // offset can be number or label
-    static const ObjAddr direct(std::uint64_t addr) {
-        return ObjAddr{std::to_string(addr), "", "", 0};
+    // offset can be number or label or register
+    static const ObjAddr *direct(int offset) { return new ObjAddr{offset, "", "", 0}; }
+    static const ObjAddr *direct(std::string label) { return new ObjAddr{label, "", "", 0}; }
+    static const ObjAddr *direct(std::string_view reg) { return new ObjAddr{reg, "", "", 0}; }
+    static const ObjAddr *indirect(const std::string_view &base) {
+        return new ObjAddr{nullptr, base, "", 0};
     }
-    static const ObjAddr indirect(const std::string_view &base) { return ObjAddr{"", base, "", 0}; }
-    static const ObjAddr index_addr(const std::string &label, const std::string_view &index,
-                                    int scale) {
-        return ObjAddr{label, "", index, scale};
+    static const ObjAddr *index_addr(const std::string &label, const std::string_view &index,
+                                     int scale) {
+        return new ObjAddr{label, "", index, scale};
     }
-    static const ObjAddr base_addr(int offset, const std::string_view &base) {
-        return ObjAddr{std::to_string(offset), base, "", 0};
+    static const ObjAddr *base_addr(int offset, const std::string_view &base) {
+        return new ObjAddr{offset, base, "", 0};
     }
-    static const ObjAddr base_addr(const std::string &label, const std::string_view &base) {
-        return ObjAddr{label, base, "", 0};
+    static const ObjAddr *base_addr(const std::string &label, const std::string_view &base) {
+        return new ObjAddr{label, base, "", 0};
     }
-    const std::string offset;
-    const std::string_view &base;
-    const std::string_view &index;
+    const std::variant<std::string, int, std::string_view, std::nullptr_t> offset;
+    const std::string_view base;
+    const std::string_view index;
     const int scale;
     const std::string to_string() const;
 };
@@ -99,16 +114,29 @@ class LValueGenerator : public Visitor {
     explicit LValueGenerator(Generator *g) : _gtr(g) {}
 
     // expressions
+    // primary
     virtual void visit_int_const(IntConst *) {}
     virtual void visit_float_const(FloatConst *) {}
     virtual void visit_string_literal(StringLiteral *) {}
-    virtual void visit_binary(BinaryExpr *) {}
-    virtual void visit_func_call(FuncCallExpr *fd) {}
-    virtual void visit_assignment(Assignment *) {}
     virtual void visit_identifier(Identifier *);
-    virtual void visit_conv(ConvExpr *) {}
-    virtual void visit_cast(CastExpr *) {}
-    virtual void visit_unary(UnaryExpr *);
+    // postfix
+    virtual void visit_func_call(FuncCall *) {}
+    virtual void vist_subscription(Subscript *);
+    virtual void visit_postfix_inc(PostInc *) {}
+    virtual void visit_postfix_dec(PostDec *) {}
+    // others
+    virtual void visit_unary(Unary *);
+    virtual void visit_cast(Cast *) {}
+    virtual void visit_conv(Conv *) {}
+    // virtual void visit_binary(Binary *) {}
+    virtual void visit_mult(Multi *) {}
+    virtual void visit_additive(Add *) {}
+    virtual void visit_shift(Shift *) {}
+    virtual void visit_relational(Relational *) {}
+    virtual void visit_bitwise(Bitwise *) {}
+    virtual void visit_logical(Logical *) {}
+
+    virtual void visit_assignment(Assignment *) {}
     // statements
     virtual void visit_func_def(FuncDef *fd) {}
     // labeled
@@ -131,10 +159,11 @@ class LValueGenerator : public Visitor {
 
   private:
     Generator *_gtr;
-    std::optional<const std::string> _addr = std::nullopt;
+    std::optional<const ObjAddr *> _obj_addr = std::nullopt;
 
   public:
-    const std::string &addr() const { return _addr.value(); }
+    const std::string addr() const { return _obj_addr.value()->to_string(); }
+    const ObjAddr *obj() const { return _obj_addr.value(); }
 };
 
 class Generator : public Visitor {
@@ -163,16 +192,30 @@ class Generator : public Visitor {
     void gen();
     std::string code() const;
     // expressions
+    // primary
     virtual void visit_int_const(IntConst *);
     virtual void visit_float_const(FloatConst *);
     virtual void visit_string_literal(StringLiteral *);
-    virtual void visit_binary(BinaryExpr *);
-    virtual void visit_func_call(FuncCallExpr *fd);
-    virtual void visit_assignment(Assignment *);
     virtual void visit_identifier(Identifier *);
-    virtual void visit_conv(ConvExpr *);
-    virtual void visit_cast(CastExpr *);
-    virtual void visit_unary(UnaryExpr *);
+    // postfix
+    virtual void visit_func_call(FuncCall *);
+    virtual void vist_subscription(Subscript *);
+    virtual void visit_postfix_inc(PostInc *);
+    virtual void visit_postfix_dec(PostDec *);
+    // others
+    virtual void visit_unary(Unary *);
+    virtual void visit_cast(Cast *);
+    virtual void visit_conv(Conv *);
+    // binary
+    // virtual void visit_binary(Binary *);
+    virtual void visit_mult(Multi *);
+    virtual void visit_additive(Add *);
+    virtual void visit_shift(Shift *);
+    virtual void visit_relational(Relational *);
+    virtual void visit_bitwise(Bitwise *);
+    virtual void visit_logical(Logical *);
+
+    virtual void visit_assignment(Assignment *);
     // statements
     virtual void visit_func_def(FuncDef *fd);
     // labeled
@@ -218,11 +261,15 @@ class Generator : public Visitor {
     void pop(const std::string_view &reg, int, bool);
     void restore();
 
-    void emit_logic(BinaryExpr *, bool isand);
+    void emit_logic(Binary *, bool isand);
     void emit_iset0(const std::string_view &);
     void emit_fset0(const std::string_view &);
-    void emit_ibin(BinaryExpr *);
-    void emit_fbin(BinaryExpr *);
+    void emit_ibin(Binary *);
+    void emit_oprands_for_integer_binary(Binary *);
+    void emit_additive(Binary *);
+    void emit_arithmetic_integer_additive(Add *);
+    void emit_derefed_additive(Add *);
+    void emit_float_binary(Binary *);
     void emit_fcmp(const char *setcc, int width);
     void emit_idiv(const Type *type);
     void emit_fdiv(const Type *type);

@@ -66,78 +66,78 @@ const Token *Scanner::get_token() {
     case '+':
         next();
         if (try_next('='))
-            return make_token(TK_ADD_ASSIGN);
+            return make_token(TK_ADD_ASSIGN, "+=");
         else if (try_next('+'))
-            return make_token(TK_INC);
+            return make_token(TK_INC, "++");
         return make_token(TK_PLUS);
     case '-':
         next();
         if (try_next('='))
-            return make_token(TK_MINUS_ASSIGN);
+            return make_token(TK_MINUS_ASSIGN, "-=");
         if (try_next('-'))
-            return make_token(TK_DEC);
+            return make_token(TK_DEC, "--");
         return make_token(TK_MINUS);
     case '%':
         next();
         if (try_next('='))
-            return make_token(TK_MOD_ASSIGN);
+            return make_token(TK_MOD_ASSIGN, "%=");
         return make_token(TK_MOD);
     case '*':
         next();
         if (try_next('='))
-            return make_token(TK_MUL_ASSIGN);
+            return make_token(TK_MUL_ASSIGN, "*=");
         return make_token(TK_STAR);
     case '/':
         next();
         if (try_next('='))
-            return make_token(TK_DIV_ASSIGN);
+            return make_token(TK_DIV_ASSIGN, "/=");
         return make_token(TK_SLASH);
     case '<':
         next();
         if (try_next('<')) {
             if (try_next('='))
-                return make_token(TK_LSHIFT_ASSIGN);
-            return make_token(TK_LSHIFT);
+                return make_token(TK_LSHIFT_ASSIGN, "<<=");
+            return make_token(TK_LSHIFT, "<<");
         } else if (try_next('='))
-            return make_token(TK_LEQUAL);
+            return make_token(TK_LEQUAL, "<=");
         return make_token(TK_LESS);
     case '>':
         next();
         if (try_next('>')) {
             if (try_next('='))
-                return make_token(TK_RSHIFT_ASSIGN);
-            return make_token(TK_RSHIFT);
+                return make_token(TK_RSHIFT_ASSIGN, ">>=");
+            return make_token(TK_RSHIFT, ">>");
         } else if (try_next('='))
-            return make_token(TK_GEQUAL);
+            return make_token(TK_GEQUAL, ">=");
         return make_token(TK_GREATER);
     case '&':
         next();
         if (try_next('&'))
-            return make_token(TK_LAND);
+            return make_token(TK_LAND, "&&");
         if (try_next('='))
-            return make_token(TK_BAND_ASSIGN);
+            return make_token(TK_BAND_ASSIGN, "&=");
         return make_token(TK_BAND);
     case '|':
         next();
         if (try_next('|'))
-            return make_token(TK_LOR);
+            return make_token(TK_LOR, "||");
         if (try_next('='))
-            return make_token(TK_BOR_ASSIGN);
+            return make_token(TK_BOR_ASSIGN, "|=");
         return make_token(TK_BOR);
     case '^':
         next();
         if (try_next('='))
-            return make_token(TK_XOR_ASSIGN);
+            return make_token(TK_XOR_ASSIGN, "^=");
         return make_token(TK_XOR);
     case '!':
         next();
         if (try_next('='))
-            return make_token(TK_NEQUAL);
+            return make_token(TK_NEQUAL, "!=");
         return make_token(TK_NOT);
     case '=':
         next();
         if (try_next('='))
-            return make_token(TK_EQUAL);
+            return make_token(TK_EQUAL, "==");
         return make_token(TK_ASSIGN);
     case '0' ... '9':
         return get_number();

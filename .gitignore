@@ -1,1 +1,7 @@
 .cache
+*.o
+*.c
+*.s
+.vscode
+*.out
+mqcc
