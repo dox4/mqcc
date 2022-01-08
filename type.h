@@ -112,8 +112,9 @@ class Object {
     Attribute *mut_attr() { return _attr; }
     const Token *ident() const noexcept { return _ident; }
     bool is_function() const noexcept { return _type->kind() == TY_FUNC; }
-    bool is_global() const noexcept { return !is_local(); }
-    bool is_local() const noexcept { return _attr->is_static; }
+    bool is_static() const noexcept { return _attr->is_static; }
+    bool is_global() const noexcept { return _is_global; }
+    void set_global() noexcept { _is_global = true; }
     bool is_defined() const noexcept { return _is_defined; }
     void set_defined(bool is_defined) { _is_defined = is_defined; }
     void set_offset(int offset) { _offset = offset; }
@@ -124,6 +125,7 @@ class Object {
     const Type *_type;
     Attribute *_attr;
     bool _is_defined = true;
+    bool _is_global  = false; // for global variables
     int _offset      = INT32_MIN;
 };
 

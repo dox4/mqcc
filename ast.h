@@ -25,6 +25,7 @@ class Token;
 enum AstType {};
 
 class Visitor;
+class InitDeclarator;
 class AstNode {
   public:
     // every ast node should implement its own accept function
@@ -32,6 +33,8 @@ class AstNode {
     virtual void accept(Visitor *visitor);
     virtual ~AstNode() = default;
     virtual bool is_return_stmt() const noexcept { return false; }
+    virtual bool is_function() const noexcept { return false; }
+    virtual bool is_block() const noexcept { return false; }
 };
 
 // external declaration:
@@ -428,6 +431,10 @@ class Conv : public Expr {
 class BlockItem : public ExtDecl {
   public:
     virtual bool is_init_declarator() const noexcept { return false; }
+    virtual InitDeclarator *as_init_declarator() noexcept {
+        unimplement();
+        return nullptr;
+    }
 };
 
 class Stmt : public BlockItem {};
@@ -628,6 +635,7 @@ class InitDeclarator : public BlockItem {
     const HalfType *halftype() const noexcept { return _declarator; }
     Initializer *initializer() { return _initializer; }
     virtual bool is_init_declarator() const noexcept { return true; }
+    virtual InitDeclarator *as_init_declarator() noexcept { return this; }
     virtual void accept(Visitor *);
 
   private:
@@ -656,6 +664,7 @@ class FuncDef : public ExtDecl {
     Block *body() const noexcept { return _body; }
     int stack_size() const noexcept;
     const FuncType *signature() const noexcept { return _singnature; }
+    virtual bool is_function() const noexcept { return true; }
 
   private:
     const Token *_func_name;
@@ -666,10 +675,13 @@ class FuncDef : public ExtDecl {
 // translation unit ::= external-declaration +
 class TransUnit {
   public:
-    explicit TransUnit(std::list<ExtDecl *> ext_decls) : _ext_decls(ext_decls){};
-    std::list<ExtDecl *> get_ext_decls() const { return _ext_decls; }
+    explicit TransUnit(std::list<FuncDef *> funcs, std::list<InitDeclarator *> gvars)
+        : _func_defs(funcs), _global_variables(gvars) {}
+    std::list<FuncDef *> func_defs() const { return _func_defs; }
+    std::list<InitDeclarator *> global_vars() const { return _global_variables; }
 
   private:
-    std::list<ExtDecl *> _ext_decls;
+    std::list<FuncDef *> _func_defs;
+    std::list<InitDeclarator *> _global_variables;
 };
 #endif

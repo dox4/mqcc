@@ -121,52 +121,69 @@ Parser::Parser(Scanner *scanner) : _scanner(scanner), _lookups(), _consumed() {
 // so we can parse them first and dispatch parsing actions
 // by next token or if the parsed declarator indicate a function
 TransUnit *Parser::parse() {
-    list<ExtDecl *> decls;
+    list<FuncDef *> funcs;
+    list<InitDeclarator *> gvars;
     while (!test(TK_EOF)) {
         auto attr      = new Attribute;
         auto base_type = parse_declaration_specifiers(attr);
         // typedef
         if (attr->is_typedef) {
             // auto type = parse_typedef(base_type);
-        } else {
-            // global variable or function declaration/definition
-            // both start with declarator
-            ExtDecl *current;
-            auto prefix = parse_declarator(base_type);
-            auto var    = _scope->find_var_in_local(prefix->token()->get_lexeme());
-            if (var == nullptr) {
-                auto gdecl = new Object(prefix->token(), prefix->type(), attr);
-                if (test('{')) {
-                    current = parse_func_def(prefix);
-                } else if (try_next(';')) {
-                    gdecl->set_defined(false);
-                } else
-                    current = parse_global_variable(prefix->type());
-                _scope->push_var(prefix->token()->get_lexeme(), gdecl);
-            } else {
-                auto vt = var->type();
-                if (!vt->equals_to(prefix->type())) {
-                    error_at(prefix->token(), "type redefined conflict: '%s' vs '%s'",
-                             vt->normalize().c_str(), prefix->type()->normalize().c_str());
-                }
-                if (var->is_function()) {
-                    if (test('{')) {
-                        if (var->is_defined())
-                            error_at(prefix->token(), "function redefined.");
-                        current = parse_func_def(prefix);
-                    } else if (try_next(';')) {
-                        // _scope->push_type(prefix->token()->get_lexeme(), prefix->type());
-                    }
-                } else
-                    current = parse_global_variable(prefix->type());
-            }
-            decls.push_back(current);
+            continue;
         }
+        // global variable or function declaration/definition
+        // both start with declarator
+        auto prefix = parse_declarator(base_type);
+        // function declaration
+        if (prefix->type()->is_function()) {
+            check_func_declaration(prefix, attr);
+            if (test('{')) {
+                auto func = parse_func_def(prefix);
+                funcs.push_back(func);
+            } else if (!try_next(';'))
+                error_at(peek(), "expect ';' or '{'.");
+            continue;
+        }
+        // global variable declaration
+        auto vars = parse_global_variables(prefix, attr);
+        gvars.splice(gvars.end(), vars);
     }
-    return new TransUnit(decls);
+    return new TransUnit(funcs, gvars);
 }
 
-Block *Parser::parse_global_variable(const Type *base) { return nullptr; }
+list<InitDeclarator *> Parser::parse_global_variables(const HalfType *base, Attribute *attr) {
+    list<InitDeclarator *> ret;
+    // first variable
+    if (try_next('=')) {
+        auto init = parse_initializer(base->type());
+        ret.emplace_back(new InitDeclarator(base, init));
+    } else {
+        ret.emplace_back(new InitDeclarator(base, nullptr));
+    }
+    check_init_declarator(*ret.begin(), attr);
+    if (try_next(';')) {
+        _scope->find_var_in_local((*ret.begin())->halftype()->token()->get_lexeme())->set_global();
+        return ret;
+    }
+    // declarations separated by ','
+    if (!try_next(','))
+        error_at(peek(), "unexpected token while parsing global variable, expect '=', ';' or ','.");
+
+    auto inits = parse_init_declarators(base->type(), attr);
+    for (auto init : inits->items())
+        ret.emplace_back(init->as_init_declarator());
+    for (auto init : ret) {
+        // set all global variables `is_global`
+        auto name = init->halftype()->token()->get_lexeme();
+        _scope->find_var_in_local(name)->set_global();
+        if (init->is_initialized()) {
+            if (!init->initializer()->assignment()->is_const())
+                error_at(init->initializer()->assignment()->token(),
+                         "not a compile time constant.");
+        }
+    }
+    return ret;
+}
 
 const Type *Parser::parse_typedef(const Type *base) { return nullptr; }
 
@@ -461,10 +478,11 @@ InitDeclarator *Parser::parse_init_declarator(const Type *base) {
 
 // chibicc treats an init initializer list as a compound statement
 // but an init initializer list does not have a nested scope
-Block *Parser::parse_init_declarators(const Type *base) {
+Block *Parser::parse_init_declarators(const Type *base, Attribute *attr) {
     vector<BlockItem *> block{};
     do {
         auto declarator = parse_init_declarator(base);
+        check_init_declarator(declarator, attr);
         block.push_back(declarator);
     } while (try_next(','));
     return new Block(_scope, block);
@@ -591,13 +609,7 @@ Type *Parser::parse_func_or_array_decl(const Type *fake_base, const char *name) 
 Block *Parser::parse_declaration() {
     Attribute *attr = new Attribute;
     auto type       = parse_declaration_specifiers(attr);
-    auto block      = parse_init_declarators(type);
-    for (auto item : block->items()) {
-        mqassert(item->is_init_declarator(), "all items in a declaration must be init declarator.");
-        InitDeclarator *id = static_cast<InitDeclarator *>(item);
-        check_name(id, attr);
-    }
-    return block;
+    return parse_init_declarators(type, attr);
 }
 
 Decl *Parser::parse_decl(type_counter_t spec, Declarator *declarator) { return nullptr; }
@@ -1251,8 +1263,14 @@ Block *Parser::parse_block() {
 }
 
 FuncDef *Parser::parse_func_def(const HalfType *base) {
-    mqassert(base->type()->kind() == TY_FUNC, "expect a function type.");
+    // check redefined and extern
+    auto obj = _scope->find_var(base->token()->get_lexeme());
+    if (obj->is_defined())
+        error_at(base->token(), "function redefined.");
+    if (obj->attr()->is_extern)
+        error_at(base->token(), "defined extern function.");
     auto func_type = static_cast<const FuncType *>(base->type());
+
     // registry func name to scope
     _scope      = _scope->drill_down();
     auto params = func_type->parameters();
@@ -1273,7 +1291,7 @@ FuncDef *Parser::parse_func_def(const HalfType *base) {
 }
 
 const Type *Parser::parse_type_name() { return nullptr; }
-void Parser::check_name(const InitDeclarator *id, Attribute *attr) {
+void Parser::check_init_declarator(const InitDeclarator *id, Attribute *attr) {
     auto token = id->halftype()->token();
     auto obj   = _scope->find_var_in_local(token->get_lexeme());
     auto type  = id->halftype()->type();
@@ -1298,6 +1316,23 @@ void Parser::check_name(const InitDeclarator *id, Attribute *attr) {
     if (attr->is_extern && id->is_initialized()) {
         error_at(token, "declared with both extern and initializer.");
     }
+}
+void Parser::check_func_declaration(const HalfType *prefix, Attribute *attr) {
+    auto var = _scope->find_var_in_local(prefix->token()->get_lexeme());
+    if (var == nullptr) {
+        var = new Object(prefix->token(), prefix->type(), attr);
+        var->set_defined(false);
+        _scope->push_var(prefix->token()->get_lexeme(), var);
+        return;
+    }
+    auto vartype = var->type();
+    auto varattr = var->attr();
+    // check type
+    if (!vartype->equals_to(prefix->type()))
+        error_at(prefix->token(), "name redeclared with different type.");
+    // check linkage
+    if (!attr->equals_to(varattr) || !attr->is_extern)
+        error_at(prefix->token(), "redeclared with non-extern.");
 }
 
 bool Parser::maybe_decl() {

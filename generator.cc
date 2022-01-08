@@ -39,6 +39,8 @@ static constexpr string_view r13 = "%r13"sv, r13d = "%r13d"sv, r13w = "%r13w"sv,
 static constexpr string_view r14 = "%r14"sv, r14d = "%r14d"sv, r14w = "%r14w"sv, r14b = "%r14b"sv;  // callee saved
 static constexpr string_view r15 = "%r15"sv, r15d = "%r15d"sv, r15w = "%r15w"sv, r15b = "%r15b"sv;  // callee saved
 
+static constexpr string_view rip = "%rip";
+
 static const unordered_map<string_view, int> reg_bytes{
     { rax, 8 }, { eax , 4 }, { ax  , 2 }, { al  , 1 },
     { rbx, 8 }, { ebx , 4 }, { bx  , 2 }, { bl  , 1 },
@@ -139,6 +141,8 @@ static const string userlabel(const string label) {
     // self defined
     return ".LSD" + label + "0";
 }
+
+static const string gvar_label(const string name) { return "GVAR_" + name; }
 /// static variables end
 
 /// static funtions
@@ -266,6 +270,21 @@ enum Alignment {
     Alignment8 = 8,
 };
 
+const string align_type(Alignment align) {
+    switch (align) {
+    case Alignment1:
+        return ".byte";
+    case Alignment2:
+        return ".word";
+    case Alignment4:
+        return ".long";
+    case Alignment8:
+        return ".quad";
+    }
+    error("invalied alignment: %d", align);
+    return "";
+}
+
 class RoData {
   public:
     explicit RoData(const string label, Alignment align, const string &type)
@@ -280,20 +299,6 @@ class RoData {
 
   private:
     const string _label, _align, _type;
-    static const string align_type(Alignment align) {
-        switch (align) {
-        case Alignment1:
-            return ".byte";
-        case Alignment2:
-            return ".word";
-        case Alignment4:
-            return ".long";
-        case Alignment8:
-            return ".quad";
-        }
-        error("invalied alignment: %d", align);
-        return "";
-    }
 };
 
 class StrRoData : public RoData {
@@ -321,7 +326,7 @@ template <typename UintType> class NumRoData : public RoData {
 
 /// Generator
 
-Generator::Generator(TransUnit *unit) : _unit(unit) {}
+Generator::Generator(TransUnit *unit, const Scope *scope) : _unit(unit), _current_scope(scope) {}
 
 Generator::~Generator() {}
 
@@ -439,8 +444,58 @@ void Generator::emit_fcmp(const char *setcc, int width) {
     emit("movzbq", al, rax);
 }
 
+void Generator::emit_global_variable(InitDeclarator *id) {
+    auto name      = id->halftype()->token()->get_lexeme();
+    auto obj       = _current_scope->find_var_in_local(name);
+    auto gvarlabel = gvar_label(id->halftype()->token()->get_lexeme());
+    emit(".globl", gvarlabel);
+    emit_label(gvarlabel);
+    if (id->is_initialized()) {
+        auto e          = id->initializer()->assignment();
+        auto type       = obj->type();
+        auto align_size = type->size() >= 8 ? 8 : type->size();
+        auto align      = align_type(static_cast<Alignment>(align_size));
+        switch (e->kind()) {
+        case EXPR_INT: {
+            auto i = static_cast<const IntConst *>(e);
+            emit(align, to_string(i->value()));
+            break;
+        }
+        case EXPR_FLOAT: {
+            auto f = static_cast<const FloatConst *>(e);
+            emit(align, to_string(static_cast<uint64_t>(f->value())));
+            break;
+        }
+        case EXPR_STR: {
+            auto s = static_cast<const StringLiteral *>(e);
+            emit(".string", s->get_value());
+            break;
+        }
+        case EXPR_FUNC_CALL:
+        case EXPR_SUBSCRIPT:
+        case EXPR_PINC:
+        case EXPR_PDEC:
+        case EXPR_IDENT:
+        case EXPR_UNARY:
+        case EXPR_CAST:
+        case EXPR_BINARY:
+        case EXPR_COND:
+        case EXPR_CONV:
+        case EXPR_ASSIGNMENT:
+            unreachable();
+        }
+    } else {
+        emit(".zero", to_string(obj->type()->size()));
+    }
+}
 void Generator::emit_data() {
-    if (_rodata.size() > 0) {
+    if (!_unit->global_vars().empty()) {
+        emit(".section", ".data");
+        for (auto gvar : _unit->global_vars())
+            emit_global_variable(gvar);
+    }
+
+    if (!_rodata.empty()) {
         emit(".section", ".rodata");
         for (auto rodata : _rodata) {
             emit(".align", rodata->align());
@@ -553,14 +608,14 @@ const string Generator::add_rodata(const float fval) {
     return fau_label;
 }
 
-const string static_addr(const string &label, int offset) {
-    return offset == 0 ? label + "(%rip)" : label + std::to_string(offset) + "(%rip)";
+const string addr_based_rip(const string &label, int offset) {
+    return ObjAddr::base_addr(offset, label, rip)->to_string();
+    // return offset == 0 ? label + "(%rip)" : label + std::to_string(offset) + "(%rip)";
 }
 
 void Generator::gen() {
-    for (auto decl : _unit->get_ext_decls()) {
-        if (decl != nullptr)
-            visit(decl);
+    for (auto decl : _unit->func_defs()) {
+        visit(decl);
     }
     emit_data();
 }
@@ -665,15 +720,15 @@ void Generator::visit_float_const(FloatConst *fc) {
     if (width == 4) {
         float fval = dval;
         auto label = add_rodata(fval);
-        emit(fmov(width), static_addr(label, 0), r);
+        emit(fmov(width), addr_based_rip(label, 0), r);
     } else {
         auto label = add_rodata(dval);
-        emit(fmov(width), static_addr(label, 0), r);
+        emit(fmov(width), addr_based_rip(label, 0), r);
     }
 }
 void Generator::visit_string_literal(StringLiteral *str) {
     auto label = add_rodata(str->get_value());
-    emit("lea", static_addr(label, 0), rax);
+    emit("lea", addr_based_rip(label, 0), rax);
 }
 
 void Generator::emit_iset0(const string_view &reg) { emit("xorq", reg, reg); }
@@ -1120,12 +1175,10 @@ void Generator::visit_init_declarator(InitDeclarator *id) {
     }
 }
 
-void Generator::visit_initializer(Initializer *init) {
-    visit(init->assignment());
-}
+void Generator::visit_initializer(Initializer *init) { visit(init->assignment()); }
 
 void Generator::visit_identifier(Identifier *ident) {
-    auto obj  = _current_scope->find_var_in_local(ident->get_value());
+    auto obj  = _current_scope->find_var(ident->get_value());
     auto type = obj->type();
     auto size = type->size();
     _lvgtr->visit(ident);
@@ -1214,15 +1267,13 @@ string Generator::code() const { return _buffer.str(); }
 
 const string ObjAddr::to_string() const {
     stringstream ss;
-    if (!holds_alternative<nullptr_t>(offset)) {
-        if (holds_alternative<string>(offset)) {
-            ss << get<string>(offset);
-        } else if (holds_alternative<string_view>(offset)) {
-            ss << get<string_view>(offset);
-        } else if (get<int>(offset) != 0) {
-            ss << get<int>(offset);
+    if (offset != 0) {
+        ss << offset;
+        if (!label.empty()) {
+            ss << "+";
         }
     }
+    ss << label;
     if (!(base.empty() && index.empty())) {
         ss << "(";
         if (!base.empty()) {
@@ -1246,7 +1297,7 @@ void LValueGenerator::visit_unary(Unary *ue) {
     case '*': {
         _gtr->visit(ue->oprand());
         _gtr->emit("movq", rax, r10);
-        _obj_addr.emplace(ObjAddr::direct(::addr(r10)));
+        _obj_addr.emplace(ObjAddr::indirect(r10));
         return;
     }
     case '+': {
@@ -1263,14 +1314,18 @@ void LValueGenerator::visit_unary(Unary *ue) {
     }
 }
 void LValueGenerator::visit_identifier(Identifier *ident) {
-    auto obj = _gtr->_current_scope->find_var_in_local(ident->get_value());
-    auto sp  = ident->token()->get_position();
+    auto name = ident->get_value();
+    auto obj  = _gtr->_current_scope->find_var(ident->get_value());
+    auto sp   = ident->token()->get_position();
     _gtr->emit("#", sp->get_file_name(), to_string(sp->get_line()));
-    _gtr->emit("#", sp->current_line());
-    if (obj != nullptr) {
+    _gtr->emit("#", sp->current_line(), ident->token()->get_lexeme());
+    if (obj->is_global())
+        _obj_addr.emplace(ObjAddr::base_addr(gvar_label(name), rip));
+    else {
         auto stack_offset = obj->offset();
         _obj_addr.emplace(ObjAddr::base_addr(stack_offset, rbp));
     }
+    _gtr->emit("#", _obj_addr.value()->to_string());
 }
 void LValueGenerator::vist_subscription(Subscript *s) {
     visit(s->array());

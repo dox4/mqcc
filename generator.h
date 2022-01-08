@@ -85,24 +85,29 @@ class Generator;
 struct ObjAddr {
     // addr = offset (base, index, scale)
     // addr = offset + (base + index * scale)
-    // offset can be number or label or register
-    static const ObjAddr *direct(int offset) { return new ObjAddr{offset, "", "", 0}; }
-    static const ObjAddr *direct(std::string label) { return new ObjAddr{label, "", "", 0}; }
-    static const ObjAddr *direct(std::string_view reg) { return new ObjAddr{reg, "", "", 0}; }
+    // offset can be number or label or register or number + label
+    // static const ObjAddr *direct(int offset) { return new ObjAddr{offset, "", "", "", 0}; }
+    // static const ObjAddr *direct(std::string label) { return new ObjAddr{0, label, "", "", 0}; }
+    // static const ObjAddr *direct(std::string_view reg) { return new ObjAddr{0, reg, "", "", 0}; }
     static const ObjAddr *indirect(const std::string_view &base) {
-        return new ObjAddr{nullptr, base, "", 0};
+        return new ObjAddr{0, "", base, "", 0};
     }
     static const ObjAddr *index_addr(const std::string &label, const std::string_view &index,
                                      int scale) {
-        return new ObjAddr{label, "", index, scale};
+        return new ObjAddr{0, label, "", index, scale};
+    }
+    static const ObjAddr *base_addr(int offset, const std::string &label,
+                                    const std::string_view &base) {
+        return new ObjAddr{offset, label, base, "", 0};
     }
     static const ObjAddr *base_addr(int offset, const std::string_view &base) {
-        return new ObjAddr{offset, base, "", 0};
+        return base_addr(offset, "", base);
     }
     static const ObjAddr *base_addr(const std::string &label, const std::string_view &base) {
-        return new ObjAddr{label, base, "", 0};
+        return base_addr(0, label, base);
     }
-    const std::variant<std::string, int, std::string_view, std::nullptr_t> offset;
+    const int offset;
+    const std::string label;
     const std::string_view base;
     const std::string_view index;
     const int scale;
@@ -184,10 +189,11 @@ class Generator : public Visitor {
     std::stringstream _buffer;
     int _offset = 0;
     std::vector<const RoData *> _rodata;
+    std::vector<Block *> _data;
     LValueGenerator *_lvgtr = new LValueGenerator(this);
 
   public:
-    Generator(TransUnit *unit);
+    Generator(TransUnit *unit, const Scope* scope);
     virtual ~Generator();
     void gen();
     std::string code() const;
@@ -277,6 +283,7 @@ class Generator : public Visitor {
     void emit_cvt_to_int(const Type *from, const Type *to);
     void emit_promot_int(const Type *from);
     void emit_cvt_to_float(const Type *from, const Type *to);
+    void emit_global_variable(InitDeclarator *);
     void emit_data();
     void emit_text();
 

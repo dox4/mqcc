@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
     Scanner scanner(opt.input_file, src);
     Parser parser(&scanner);
     auto unit = parser.parse();
-    Generator g(unit);
+    Generator g(unit, parser.scope());
     g.gen();
     auto code = g.code();
 

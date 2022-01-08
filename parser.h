@@ -44,6 +44,7 @@ class Parser {
   public:
     explicit Parser(Scanner *scanner);
     TransUnit *parse();
+    const Scope* scope() const noexcept { return _scope; }
 
   private:
     Scanner *_scanner;
@@ -67,7 +68,7 @@ class Parser {
 
     // init-declarator needs initializer
     Initializer *parse_initializer(const Type *);
-    Block *parse_init_declarators(const Type *);
+    Block *parse_init_declarators(const Type *, Attribute*);
     InitDeclarator *parse_init_declarator(const Type *);
 
     // direct declarator needs pointer
@@ -128,14 +129,14 @@ class Parser {
     // function definition needs compound statements aka. block
     Block *parse_block();
     FuncDef *parse_func_def(const HalfType *);
-    FuncDef *parse_func_def(type_counter_t, Declarator *);
-    Block *parse_global_variable(const Type *);
+    std::list<InitDeclarator *> parse_global_variables(const HalfType *, Attribute *);
 
     // parse type name
     const Type *parse_type_name();
 
     // check name
-    void check_name(const InitDeclarator *, Attribute *);
+    void check_init_declarator(const InitDeclarator *, Attribute *);
+    void check_func_declaration(const HalfType *, Attribute *);
 
     // test if next token could lead a declaration
     bool maybe_decl();
