@@ -29,6 +29,7 @@ class Scanner {
     void advance(int step);
     void skip_spaces();
     const Token *get_number();
+    int read_escape();
     const Token *get_string();
     const Token *get_name_or_keyword();
     const Token *make_token(int tp);

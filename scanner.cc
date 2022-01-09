@@ -200,13 +200,98 @@ const Token *Scanner::get_name_or_keyword() {
     return make_token(TK_NAME, literal);
 }
 
+#define isoctal(c) ((c) >= '0' && (c) < '8')
+int hex_to_int(int x) {
+    if ('0' <= x && '9' >= x)
+        return x - '0';
+    return tolower(x) - 'a' + 10;
+}
+
+int Scanner::read_escape() {
+    expect('\\');
+    // read octal char
+    // \NNN, max 3 octal numbers
+    if (isoctal(peek())) {
+        int o = peek() - '0';
+        next();
+        if (isoctal(peek())) {
+            o = (o << 3) + (peek() - '0');
+            next();
+            if (isoctal(peek())) {
+                o = (o << 3) + (peek() - '0');
+                next();
+            }
+        }
+        if (o > 256)
+            error_at(make_token(peek()), "escape sequence out of range.");
+        return o;
+    }
+    // read hex char
+    if (peek() == 'x') {
+        next();
+        if (!isxdigit(peek()))
+            error_at(make_token(peek()), "expect hex number sequence.");
+
+        int x = 0;
+        while (isxdigit(peek())) {
+            x = (x << 4) + hex_to_int(peek());
+            next();
+        }
+        if (x > 256)
+            error_at(make_token(peek()), "escape sequence out of range.");
+        return x;
+    }
+    // read escape char
+    switch (peek()) {
+    case 'a':
+        next();
+        return '\a';
+    case 'b':
+        next();
+        return '\b';
+    case 't':
+        next();
+        return '\t';
+    case 'n':
+        next();
+        return '\n';
+    case 'v':
+        next();
+        return '\v';
+    case 'f':
+        next();
+        return '\f';
+    case 'r':
+        next();
+        return '\r';
+    // from chibicc
+    // [GNU] \e for the ASCII escape character is a GNU C extension.
+    case 'e':
+        next();
+        return 27;
+    case '\'':
+        next();
+        return '\'';
+    case '"':
+        next();
+        return '"';
+    }
+
+    auto c = peek();
+    next();
+    return c;
+}
 const Token *Scanner::get_string() {
     expect('\"');
     string buffer;
     int ch;
     while ((ch = peek()) != '\"') {
-        buffer.push_back(ch);
-        next();
+        if (ch == '\\') {
+            buffer.push_back(static_cast<char>(read_escape()));
+        } else {
+            buffer.push_back(ch);
+            next();
+        }
     }
     expect('\"');
     char *literal = new char[buffer.size() + 1];
