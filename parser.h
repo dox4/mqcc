@@ -44,12 +44,12 @@ class Parser {
   public:
     explicit Parser(Scanner *scanner);
     TransUnit *parse();
-    const Scope* scope() const noexcept { return _scope; }
+    const Scope *scope() const noexcept { return _scope; }
 
   private:
     Scanner *_scanner;
     Scope *_scope;
-    const FuncType *_cft = nullptr; // current function type, nullptr while not parsing func def
+    FuncDef *_cfd = nullptr; // current function type, nullptr while not parsing func def
     struct SwitchStatus {
         CaseDefaultList labels;
     } *_switch = nullptr;
@@ -59,7 +59,8 @@ class Parser {
     const Type *parse_typedef(const Type *base);
     Type *parse_struct_decl();
     Type *parse_union_decl();
-    Type *parse_struct_union_decl();
+    const Type *parse_struct_union_decl();
+    std::list<Member *> parse_member_decl(Attribute *attr, const Type *base);
     type_counter_t process_builtin(type_counter_t);
     // function definition and declaration both start with
     // these two syntax elements;
@@ -68,7 +69,7 @@ class Parser {
 
     // init-declarator needs initializer
     Initializer *parse_initializer(const Type *);
-    Block *parse_init_declarators(const Type *, Attribute*);
+    Block *parse_init_declarators(const Type *, Attribute *);
     InitDeclarator *parse_init_declarator(const Type *);
 
     // direct declarator needs pointer
@@ -85,7 +86,7 @@ class Parser {
 
     Expr *parse_primary();
     Expr *process_const();
-    Expr *parse_ident();
+    Identifier *parse_ident();
     Expr *parse_constant();
     Expr *parse_generic();
     Expr *parse_postfix();
@@ -106,6 +107,7 @@ class Parser {
 
     Expr *parse_conditional();
     Expr *parse_assignment();
+    Expr *parse_comma();
 
     // argument-expression-list:
     //   assignment-expression
@@ -126,8 +128,8 @@ class Parser {
     Stmt *parse_while();
     Stmt *parse_do_while();
     Stmt *parse_for();
-    // function definition needs compound statements aka. block
     Block *parse_block();
+    Block *parse_func_body();
     FuncDef *parse_func_def(const HalfType *);
     std::list<InitDeclarator *> parse_global_variables(const HalfType *, Attribute *);
 
@@ -137,6 +139,8 @@ class Parser {
     // check name
     void check_init_declarator(const InitDeclarator *, Attribute *);
     void check_func_declaration(const HalfType *, Attribute *);
+    void check_identifier(const Token *);
+    void check_assignment(Assignment *);
 
     // test if next token could lead a declaration
     bool maybe_decl();

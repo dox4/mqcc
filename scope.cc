@@ -12,9 +12,16 @@ Object *Scope::resolve_name(const std::string_view &name) {
 
 Object *Scope::resolve_name_in_local(const std::string_view &name) { return nullptr; }
 
-const Type *Scope::find_type_in_local(const std::string_view &name) const {
-    if (_types.find(name) != _types.end())
-        return _types.at(name);
+const Type *Scope::find_typedef(std::string_view name) const {
+    auto nt = _typedefs.find(name);
+    if (nt == _typedefs.end())
+        return _parent == nullptr ? nullptr : _parent->find_typedef(name);
+    return nt->second;
+}
+void Scope::push_typedef(std::string_view name, Type *type) {}
+const Type *Scope::find_tag_in_local(const std::string_view &name) const {
+    if (_tags.find(name) != _tags.end())
+        return _tags.at(name);
     return nullptr;
 }
 
@@ -24,19 +31,19 @@ Object *Scope::find_var_in_local(const std::string_view &name) const {
     return nullptr;
 }
 
-const Type *Scope::find_type(const std::string_view &name) const {
-    auto in_local = find_type_in_local(name);
-    return in_local ? in_local : _parent == nullptr ? nullptr : _parent->find_type(name);
+const Type *Scope::find_tag(const std::string_view &name) const {
+    auto in_local = find_tag_in_local(name);
+    return in_local ? in_local : _parent == nullptr ? nullptr : _parent->find_tag(name);
 }
 
-Type *Scope::find_mut_type(const std::string_view &name) {
-    auto in_local = find_mut_type_in_local(name);
-    return in_local ? in_local : _parent == nullptr ? nullptr : _parent->find_mut_type(name);
+Type *Scope::find_mut_tag(const std::string_view &name) {
+    auto in_local = find_mut_tag_in_local(name);
+    return in_local ? in_local : _parent == nullptr ? nullptr : _parent->find_mut_tag(name);
 }
 
-Type *Scope::find_mut_type_in_local(const std::string_view &name) {
-    if (_types.find(name) != _types.end())
-        return _types.at(name);
+Type *Scope::find_mut_tag_in_local(const std::string_view &name) {
+    if (_tags.find(name) != _tags.end())
+        return _tags.at(name);
     return nullptr;
 }
 
@@ -45,6 +52,7 @@ Object *Scope::find_var(const std::string_view &name) const {
     return in_local ? in_local : _parent == nullptr ? nullptr : _parent->find_var(name);
 }
 
+void Scope::push_tag(std::string_view tag, Type *type) { _tags.insert({tag, type}); }
 void Scope::push_var(std::string_view ident, Object *obj) {
     auto size = obj->type()->size();
     _offset += size;

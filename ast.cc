@@ -79,6 +79,7 @@ void Shift::accept(Visitor *v) { v->visit_shift(this); }
 void Relational::accept(Visitor *v) { v->visit_relational(this); }
 void Bitwise::accept(Visitor *v) { v->visit_bitwise(this); }
 void Logical::accept(Visitor *v) { v->visit_logical(this); }
+void Comma::accept(Visitor *v) { v->visit_comma(this); }
 
 void FloatConst::accept(Visitor *v) { v->visit_float_const(this); }
 
@@ -100,6 +101,8 @@ void IntConst::accept(Visitor *v) { v->visit_int_const(this); }
 /// Identifier
 void Identifier::accept(Visitor *v) { v->visit_identifier(this); }
 const Type *Identifier::type() const noexcept {
+    // debug("scope at(%p): %s", _scope, _scope->obj_to_string().c_str());
+    // debug("find variable %s: %p", _token->get_lexeme(), _scope->find_var(_token->get_lexeme()));
     if (_scope->find_var(_token->get_lexeme()) == nullptr)
         return nullptr;
     return _scope->find_var(_token->get_lexeme())->type();
@@ -123,11 +126,18 @@ const Type *FuncCall::type() const noexcept {
              "left hand of a function call expression must has a function type.");
     return static_cast<const FuncType *>(functype)->return_type();
 }
+void PostInc::accept(Visitor *v) { v->visit_postfix_inc(this); }
+void PostDec::accept(Visitor *v) { v->visit_postfix_dec(this); }
+void MemberAccess::accept(Visitor *v) { v->visit_member_access(this); }
 
 /// FuncCallExpr end
 void StringLiteral::accept(Visitor *v) { v->visit_string_literal(this); }
 const Type *StringLiteral::type() const noexcept {
     return new ArrayType(&BuiltinType::Char, strlen(_token->get_lexeme()) + 1);
+}
+void StmtExpr::accept(Visitor *v) { v->visit_block(_block); }
+const Type *StmtExpr::type() const noexcept {
+    return (*_block->items().rbegin())->as_expr_statement()->expr()->type();
 }
 
 void Assignment::accept(Visitor *v) { v->visit_assignment(this); }
@@ -142,12 +152,28 @@ const Type *Unary::type() const noexcept {
     }
     return unary_type() == '&' ? new PointerType(_oprand->type()) : _oprand->type();
 }
+const Type *MemberAccess::type() const noexcept {
+    return (token()->get_type() == TK_ARROW)
+               ? _lhs->type()->derefed()->as_struct()->find_member(_member->get_value())->type()
+               : _lhs->type()->as_struct()->find_member(_member->get_value())->type();
+}
 /// FuncDef
 
 void FuncDef::accept(Visitor *visitor) { visitor->visit_func_def(this); }
 const string_view FuncDef::func_name() const noexcept { return _func_name->get_lexeme(); }
-int FuncDef::stack_size() const noexcept { return _body->scope()->offset(); }
+// int FuncDef::stack_size() const noexcept { return _body->scope()->offset(); }
 
+void FuncDef::set_offset_for_local_vars() {
+    int offset = 0;
+    for (auto ro = _locals.rbegin(); ro != _locals.rend(); ro++) {
+        auto &o = *ro;
+        offset += o->type()->size();
+        offset = align_to(offset, o->type()->align());
+        o->set_offset(-offset);
+        debug("var name: %s, offset: %d", o->ident()->get_lexeme(), o->offset());
+    }
+    _stack_size = align_to(offset, 16);
+}
 /// FuncDef end
 
 void InitDeclarator::accept(Visitor *v) { v->visit_init_declarator(this); }

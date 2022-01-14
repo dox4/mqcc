@@ -28,6 +28,8 @@ class Scanner {
     bool try_next(int ch);
     void advance(int step);
     void skip_spaces();
+    void skip_line_comment();
+    void skip_block_comment();
     const Token *get_number();
     int read_escape();
     const Token *get_string();

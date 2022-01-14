@@ -26,6 +26,8 @@ enum AstType {};
 
 class Visitor;
 class InitDeclarator;
+class ExprStmt;
+class Identifier;
 class AstNode {
   public:
     // every ast node should implement its own accept function
@@ -57,8 +59,10 @@ enum ExprKind {
     EXPR_SUBSCRIPT, // array subscription
     EXPR_PINC,      // postfix increment
     EXPR_PDEC,      // postfix decrement
+    EXPR_MEMBER,    // postfix member access
     EXPR_IDENT,
     EXPR_STR,
+    EXPR_STMT,
 
     // unary expression
     EXPR_UNARY,
@@ -194,6 +198,13 @@ class LogOr : public Logical {
     explicit LogOr(const Token *token, Expr *lhs, Expr *rhs) : Logical(token, lhs, rhs) {}
 };
 
+class Comma : public Binary {
+  public:
+    explicit Comma(const Token *token, Expr *lhs, Expr *rhs) : Binary(token, lhs, rhs) {}
+    virtual const Type *type() const noexcept { return rhs()->type(); }
+    virtual void accept(Visitor *);
+};
+
 class Postfix : public Expr {
   public:
     Postfix(ExprKind kind) : Expr(kind) {}
@@ -216,9 +227,9 @@ class FuncCall : public Postfix {
     explicit FuncCall(Expr *left, std::vector<Expr *> args)
         : Postfix(EXPR_FUNC_CALL), _left(left), _args(args) {}
 
-    void accept(Visitor *);
+    virtual void accept(Visitor *);
     Expr *left() const noexcept { return _left; }
-    std::vector<Expr *> args() const noexcept { return _args; }
+    std::vector<Expr *> &args() noexcept { return _args; }
     virtual const Type *type() const noexcept;
     virtual const Token *token() const { return _left->token(); }
 
@@ -232,6 +243,7 @@ class PostInc : public Postfix {
     explicit PostInc(Expr *base) : Postfix(EXPR_PINC), _base(base) {}
     virtual const Token *token() const { return _base->token(); }
     virtual const Type *type() const noexcept { return _base->type(); }
+    virtual void accept(Visitor *);
 
   private:
     Expr *_base;
@@ -242,18 +254,34 @@ class PostDec : public Postfix {
     explicit PostDec(Expr *base) : Postfix(EXPR_PDEC), _base(base) {}
     virtual const Token *token() const { return _base->token(); }
     virtual const Type *type() const noexcept { return _base->type(); }
+    virtual void accept(Visitor *);
 
   private:
     Expr *_base;
 };
 
-class MemberAccess : public Postfix {};
+class MemberAccess : public Postfix {
+  public:
+    explicit MemberAccess(Expr *expr, Identifier *ident, const Token *op)
+        : Postfix(EXPR_MEMBER), _lhs(expr), _member(ident), _op(op) {}
+    virtual const Token *token() const { return _op; }
+    virtual const Type *type() const noexcept;
+    virtual void accept(Visitor *);
+    Expr *lhs() const noexcept { return _lhs; }
+    Identifier *member() const noexcept { return _member; }
+
+  private:
+    Expr *_lhs;
+    Identifier *_member;
+    const Token *_op;
+};
 
 // primary-expression:
 //   identifier
 //   constant
 //   string-literal
 //   ( expression )
+//   ( block-stmt )
 //   generic-selection
 
 class PrimaryExpr : public Expr {
@@ -262,6 +290,7 @@ class PrimaryExpr : public Expr {
     // TODO: should be pure virtual
     virtual const Type *type() const noexcept { return nullptr; };
 };
+
 class Identifier : public PrimaryExpr {
   public:
     explicit Identifier(const Token *token, const Scope *scope)
@@ -335,9 +364,21 @@ class StringLiteral : public Const {
     const char *get_value() const noexcept { return _token->get_lexeme(); }
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept;
+    virtual const Token *token() const noexcept { return _token; }
 
   private:
     const Token *_token;
+};
+class Block;
+class StmtExpr : public PrimaryExpr {
+  public:
+    explicit StmtExpr(Block *block) : PrimaryExpr(EXPR_STMT), _block(block){};
+    Block *block() const noexcept { return _block; }
+    virtual void accept(Visitor *);
+    virtual const Type *type() const noexcept;
+
+  private:
+    Block *_block;
 };
 
 class Unary : public Expr {
@@ -376,32 +417,19 @@ class Cast : public Expr {
     Expr *_expr;
 };
 
-class Assignment : public Expr {
+class Assignment : public Binary {
   public:
-    explicit Assignment(Expr *lhs, Expr *rhs) : Expr(EXPR_ASSIGNMENT), _lhs(lhs), _rhs(rhs) {
-        mqassert(lhs->kind() <= EXPR_UNARY,
-                 "the left of an assignment expression must be an unary expression.");
-    }
-    explicit Assignment(Expr *lhs, Expr *rhs, int type)
-        : Expr(EXPR_ASSIGNMENT), _lhs(lhs), _rhs(rhs), _type(type) {
-        mqassert(lhs->kind() <= EXPR_UNARY,
-                 "the left of an assignment expression must be an unary expression.");
-    }
-    Expr *lhs() const noexcept { return _lhs; }
-    Expr *rhs() const noexcept { return _rhs; }
-    int assign_type() const noexcept { return _type; }
+    explicit Assignment(const Token *token, Expr *lhs, Expr *rhs) : Binary(token, lhs, rhs) {}
     virtual void accept(Visitor *) override;
-    virtual const Type *type() const noexcept override { return _lhs->type(); }
-
-  private:
-    Expr *_lhs, *_rhs;
-    int _type = TK_ASSIGN;
+    virtual const Type *type() const noexcept override { return lhs()->type(); }
 };
 
 // implicit conversion expression
 class Conv : public Expr {
   public:
-    explicit Conv(const Type *type, Expr *expr) : Expr(EXPR_CONV), _type(type), _expr(expr) {}
+    explicit Conv(const Type *type, Expr *expr) : Expr(EXPR_CONV), _type(type), _expr(expr) {
+        debug("init from %s to %s", _expr->type()->normalize().c_str(), _type->normalize().c_str());
+    }
     virtual void accept(Visitor *);
     const Type *type() const noexcept { return _type; }
     Expr *expr() const { return _expr; }
@@ -430,6 +458,11 @@ class Conv : public Expr {
 
 class BlockItem : public ExtDecl {
   public:
+    virtual bool is_expr_statement() const noexcept { return false; }
+    virtual ExprStmt *as_expr_statement() noexcept {
+        unimplement();
+        return nullptr;
+    }
     virtual bool is_init_declarator() const noexcept { return false; }
     virtual InitDeclarator *as_init_declarator() noexcept {
         unimplement();
@@ -480,6 +513,8 @@ class ExprStmt : public Stmt {
   public:
     explicit ExprStmt(Expr *expr) : _expr(expr) {}
     Expr *expr() const noexcept { return _expr; }
+    virtual bool is_expr_statement() const noexcept { return true; }
+    virtual ExprStmt *as_expr_statement() noexcept { return this; }
     virtual void accept(Visitor *);
 
   private:
@@ -662,13 +697,19 @@ class FuncDef : public ExtDecl {
     void accept(Visitor *);
     const std::string_view func_name() const noexcept;
     Block *body() const noexcept { return _body; }
-    int stack_size() const noexcept;
+    void set_body(Block *body) { _body = body; }
+    int stack_size() const noexcept { return _stack_size; }
+    void append_local_variable(Object *o) { _locals.push_back(o); }
+    void set_offset_for_local_vars();
+    std::list<Object *> local_vars() const noexcept { return _locals; }
     const FuncType *signature() const noexcept { return _singnature; }
     virtual bool is_function() const noexcept { return true; }
 
   private:
     const Token *_func_name;
     const FuncType *_singnature;
+    int _stack_size = 0;
+    std::list<Object *> _locals;
     Block *_body;
 };
 

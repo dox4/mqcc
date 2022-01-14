@@ -1,5 +1,8 @@
 #include "type.h"
 #include "error.h"
+#include "token.h"
+#include <sstream>
+#include <string.h>
 
 using namespace std;
 
@@ -49,6 +52,54 @@ const Type *uac(const Type *l, const Type *r) {
     return l;
 }
 
+void StructType::set_members(std::list<Member *> members) {
+    _members = members;
+    if (!_members.empty()) {
+        int offset = 0;
+        for (auto m : members) {
+            offset = align_to(offset, m->type()->align());
+            m->set_offset(offset);
+            offset += m->type()->size();
+
+            if (m->type()->align() > _align)
+                _align = m->type()->align();
+        }
+        _size = align_to(offset, _align);
+    }
+}
+
+void UnionType::set_members(std::list<Member *> members) {
+    _members = members;
+    if (!_members.empty()) {
+        std::uint64_t size = 0;
+        int align = 0;
+        for (auto &m : members) {
+            m->set_offset(0);
+            if (m->type()->size() > size)
+                size = m->type()->size();
+            if (m->type()->align() > align)
+                align = m->type()->align();
+        }
+        set_align(align);
+        _size = align_to(size, align);
+    }
+}
+
+const std::string StructType::normalize() const {
+    stringstream ss;
+    ss << "struct " << (_tag == nullptr ? "" : _tag->get_lexeme()) << " { ";
+    for (auto m : _members)
+        ss << m->type()->normalize() << " " << m->name()->get_lexeme() << "; ";
+    ss << "}";
+    return ss.str();
+}
+
+Member *StructType::find_member(const char *name) const {
+    for (auto mem : _members)
+        if (strcmp(mem->name()->get_lexeme(), name) == 0)
+            return mem;
+    return nullptr;
+}
 const std::string FuncType::normalize() const {
     std::string result = _ret->normalize() + "(";
     for (size_t idx = 0; idx < _params.size(); idx++) {
@@ -70,4 +121,8 @@ bool FuncType::equals_to(const Type *other) const {
         if (!_params[i]->type()->equals_to(ft->_params[i]->type()))
             return false;
     return true;
+}
+
+int align_to(int offset, int align) {
+    return offset % align == 0 ? offset : ((offset / align) + 1) * align;
 }

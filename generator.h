@@ -42,10 +42,11 @@ class Visitor {
     virtual void visit_string_literal(StringLiteral *) = 0;
     virtual void visit_identifier(Identifier *)        = 0;
     // postfix
-    virtual void visit_func_call(FuncCall *)    = 0;
-    virtual void vist_subscription(Subscript *) = 0;
-    virtual void visit_postfix_inc(PostInc *)   = 0;
-    virtual void visit_postfix_dec(PostDec *)   = 0;
+    virtual void visit_func_call(FuncCall *)         = 0;
+    virtual void vist_subscription(Subscript *)      = 0;
+    virtual void visit_postfix_inc(PostInc *)        = 0;
+    virtual void visit_postfix_dec(PostDec *)        = 0;
+    virtual void visit_member_access(MemberAccess *) = 0;
     // others
     virtual void visit_unary(Unary *) = 0;
     virtual void visit_cast(Cast *)   = 0;
@@ -59,6 +60,7 @@ class Visitor {
     virtual void visit_bitwise(Bitwise *)       = 0;
     virtual void visit_logical(Logical *)       = 0;
     virtual void visit_assignment(Assignment *) = 0;
+    virtual void visit_comma(Comma *)           = 0;
     // statements
     virtual void visit_func_def(FuncDef *fd) = 0;
     // labeled
@@ -89,24 +91,22 @@ struct ObjAddr {
     // static const ObjAddr *direct(int offset) { return new ObjAddr{offset, "", "", "", 0}; }
     // static const ObjAddr *direct(std::string label) { return new ObjAddr{0, label, "", "", 0}; }
     // static const ObjAddr *direct(std::string_view reg) { return new ObjAddr{0, reg, "", "", 0}; }
-    static const ObjAddr *indirect(const std::string_view &base) {
+    static ObjAddr *indirect(const std::string_view &base) {
         return new ObjAddr{0, "", base, "", 0};
     }
-    static const ObjAddr *index_addr(const std::string &label, const std::string_view &index,
-                                     int scale) {
+    static ObjAddr *index_addr(const std::string &label, const std::string_view &index, int scale) {
         return new ObjAddr{0, label, "", index, scale};
     }
-    static const ObjAddr *base_addr(int offset, const std::string &label,
-                                    const std::string_view &base) {
+    static ObjAddr *base_addr(int offset, const std::string &label, const std::string_view &base) {
         return new ObjAddr{offset, label, base, "", 0};
     }
-    static const ObjAddr *base_addr(int offset, const std::string_view &base) {
+    static ObjAddr *base_addr(int offset, const std::string_view &base) {
         return base_addr(offset, "", base);
     }
-    static const ObjAddr *base_addr(const std::string &label, const std::string_view &base) {
+    static ObjAddr *base_addr(const std::string &label, const std::string_view &base) {
         return base_addr(0, label, base);
     }
-    const int offset;
+    int offset;
     const std::string label;
     const std::string_view base;
     const std::string_view index;
@@ -129,6 +129,7 @@ class LValueGenerator : public Visitor {
     virtual void vist_subscription(Subscript *);
     virtual void visit_postfix_inc(PostInc *) {}
     virtual void visit_postfix_dec(PostDec *) {}
+    virtual void visit_member_access(MemberAccess *);
     // others
     virtual void visit_unary(Unary *);
     virtual void visit_cast(Cast *) {}
@@ -142,6 +143,7 @@ class LValueGenerator : public Visitor {
     virtual void visit_logical(Logical *) {}
 
     virtual void visit_assignment(Assignment *) {}
+    virtual void visit_comma(Comma *);
     // statements
     virtual void visit_func_def(FuncDef *fd) {}
     // labeled
@@ -164,11 +166,12 @@ class LValueGenerator : public Visitor {
 
   private:
     Generator *_gtr;
-    std::optional<const ObjAddr *> _obj_addr = std::nullopt;
+    std::optional<ObjAddr *> _obj_addr = std::nullopt;
 
   public:
     const std::string addr() const { return _obj_addr.value()->to_string(); }
     const ObjAddr *obj() const { return _obj_addr.value(); }
+    ObjAddr *mut_obj() const { return _obj_addr.value(); }
 };
 
 class Generator : public Visitor {
@@ -185,6 +188,7 @@ class Generator : public Visitor {
         const std::string &label;
     } *_cont_to = nullptr;
     const Scope *_current_scope;
+    const char *_src_file_name;
 
     std::stringstream _buffer;
     int _offset = 0;
@@ -193,7 +197,7 @@ class Generator : public Visitor {
     LValueGenerator *_lvgtr = new LValueGenerator(this);
 
   public:
-    Generator(TransUnit *unit, const Scope* scope);
+    Generator(TransUnit *unit, const Scope *scope, const char *);
     virtual ~Generator();
     void gen();
     std::string code() const;
@@ -208,6 +212,7 @@ class Generator : public Visitor {
     virtual void vist_subscription(Subscript *);
     virtual void visit_postfix_inc(PostInc *);
     virtual void visit_postfix_dec(PostDec *);
+    virtual void visit_member_access(MemberAccess *);
     // others
     virtual void visit_unary(Unary *);
     virtual void visit_cast(Cast *);
@@ -222,6 +227,7 @@ class Generator : public Visitor {
     virtual void visit_logical(Logical *);
 
     virtual void visit_assignment(Assignment *);
+    virtual void visit_comma(Comma *);
     // statements
     virtual void visit_func_def(FuncDef *fd);
     // labeled
@@ -265,7 +271,12 @@ class Generator : public Visitor {
     // implement in .cc
     void push(const std::string_view &reg, int, bool);
     void pop(const std::string_view &reg, int, bool);
-    void restore();
+    void store_value(ObjAddr*, const Type *);
+    void copy_struct(const Type*);
+    int copy_bytes(ObjAddr*,int offset, int max, int step);
+
+    void push_addr(const ObjAddr*);
+    void pop_addr(const ObjAddr*);
 
     void emit_logic(Binary *, bool isand);
     void emit_iset0(const std::string_view &);
@@ -284,6 +295,8 @@ class Generator : public Visitor {
     void emit_promot_int(const Type *from);
     void emit_cvt_to_float(const Type *from, const Type *to);
     void emit_global_variable(InitDeclarator *);
+    void emit_loc(int lineno);
+    void emit_load_value(const Type *);
     void emit_data();
     void emit_text();
 

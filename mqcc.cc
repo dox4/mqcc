@@ -24,6 +24,14 @@
 using namespace std;
 
 string read_file(const char *file_name) {
+    // return from stdin
+    if (strcmp(file_name, "-") == 0) {
+        char buf[4096];
+        stringstream ss;
+        while (fgets(buf, 4096, stdin) != 0)
+            ss << buf;
+        return ss.str();
+    }
     ifstream ifs(file_name);
     string ret((istreambuf_iterator<char>(ifs)), (istreambuf_iterator<char>()));
     ifs.close();
@@ -63,25 +71,23 @@ CmdOpt parse_opt(int argc, char **argv) {
     return ret;
 }
 
-static const char *write_asm(const string &code) {
-    static const char *tmp_file_name = "/tmp/mqcc.s";
-
+static const char *write_asm(const string &code, const char *out_file_name) {
     ofstream ofs;
-    ofs.open(tmp_file_name, ios::out);
+    ofs.open(out_file_name, ios::out);
     ofs << code;
     ofs.close();
-    return tmp_file_name;
+    return out_file_name;
 }
 
-static void run_gcc(const char *asm_file, const char *out_file) {
-    stringstream cmd;
-    cmd << "gcc -std=c11";
-    cmd << " " << asm_file;
-    cmd << " "
-        << "-o"
-        << " " << out_file;
-    system(cmd.str().c_str());
-}
+// static void run_gcc(const char *asm_file, const char *out_file) {
+//     stringstream cmd;
+//     cmd << "gcc -std=c11";
+//     cmd << " " << asm_file;
+//     cmd << " "
+//         << "-o"
+//         << " " << out_file;
+//     system(cmd.str().c_str());
+// }
 
 int main(int argc, char **argv) {
     if (argc < 2) {
@@ -96,14 +102,12 @@ int main(int argc, char **argv) {
     Scanner scanner(opt.input_file, src);
     Parser parser(&scanner);
     auto unit = parser.parse();
-    Generator g(unit, parser.scope());
+    Generator g(unit, parser.scope(), opt.input_file);
     g.gen();
-    auto code = g.code();
-
-    auto tmp = write_asm(code);
+    auto code                  = g.code();
+    write_asm(code, opt.output_file);
     // set_mark();
-
-    run_gcc(tmp, opt.output_file);
+    // run_gcc(opt.output_file, opt.output_file);
 
     return 0;
 }

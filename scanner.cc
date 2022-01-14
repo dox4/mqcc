@@ -45,6 +45,16 @@ void Scanner::skip_spaces() {
         next();
 }
 
+void Scanner::skip_line_comment() {
+    while (!try_next('\n'))
+        next();
+}
+
+void Scanner::skip_block_comment() {
+    while (!(try_next('*') && try_next('/')))
+        next();
+}
+
 const Token *Scanner::get_token() {
     skip_spaces();
     int ch = peek();
@@ -61,6 +71,7 @@ const Token *Scanner::get_token() {
     case ':':
     case '?':
     case ',':
+    case '.':
         next();
         return make_token(ch);
     case '+':
@@ -76,6 +87,8 @@ const Token *Scanner::get_token() {
             return make_token(TK_MINUS_ASSIGN, "-=");
         if (try_next('-'))
             return make_token(TK_DEC, "--");
+        if (try_next('>'))
+            return make_token(TK_ARROW, "->");
         return make_token(TK_MINUS);
     case '%':
         next();
@@ -91,6 +104,14 @@ const Token *Scanner::get_token() {
         next();
         if (try_next('='))
             return make_token(TK_DIV_ASSIGN, "/=");
+        if (try_next('/')) {
+            skip_line_comment();
+            return get_token();
+        }
+        if (try_next('*')) {
+            skip_block_comment();
+            return get_token();
+        }
         return make_token(TK_SLASH);
     case '<':
         next();

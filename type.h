@@ -3,6 +3,7 @@
 #include "error.h"
 #include <cstddef>
 #include <cstdint>
+#include <list>
 #include <stdint.h>
 #include <string>
 #include <string_view>
@@ -32,6 +33,10 @@ enum TypeKind {
     TY_UNION,   // union
 };
 
+// calculate align
+int align_to(int offset, int align);
+class StructType;
+class FuncType;
 class Type {
   protected:
     TypeKind _kind;
@@ -65,8 +70,25 @@ class Type {
         return nullptr;
     }
     virtual bool is_function() const noexcept { return false; }
+    virtual const FuncType *as_function() const noexcept {
+        unimplement();
+        return nullptr;
+    }
     virtual bool is_array() const noexcept { return false; }
-    // virtual const int align() const = 0;
+    virtual const int align() const {
+        unimplement();
+        return -1;
+    };
+    virtual bool is_struct() const noexcept { return false; }
+    virtual bool is_complete() const noexcept { return true; }
+    virtual const StructType *as_struct() const noexcept {
+        unimplement();
+        return nullptr;
+    }
+    virtual StructType *as_struct() noexcept {
+        unimplement();
+        return nullptr;
+    }
     // virtual bool is_atomic() const  = 0;
 };
 
@@ -168,6 +190,7 @@ class BuiltinType : public Type {
         }
         return that->is_arithmetic();
     }
+    virtual const int align() const { return _size; }
 };
 
 class Derefed : public Type {
@@ -176,6 +199,7 @@ class Derefed : public Type {
         : Type(kind, size, ""), _derefed(derefed) {}
     virtual bool is_derefed() const noexcept { return true; }
     virtual const Type *derefed() const noexcept { return _derefed; }
+    virtual const int align() const { return 8; }
 
   private:
     const Type *_derefed;
@@ -193,7 +217,7 @@ class PointerType : public Derefed {
         if (Type::is_compitable_with(that)) {
             return true;
         }
-        if (that->is_pointer()) {
+        if (that->is_derefed()) {
             return true;
         }
         // long
@@ -207,11 +231,60 @@ class PointerType : public Derefed {
     }
 };
 
-class StructType : public Type {
+class Member {
+  public:
+    explicit Member(const Type *type, const Token *name) : _type(type), _name(name) {}
+    const Type *type() const noexcept { return _type; }
+    const Token *name() const noexcept { return _name; }
+    void set_offset(int offset) { _offset = offset; }
+    int offset() const noexcept { return _offset; }
+
   private:
-    std::vector<Object *> _members;
+    int _offset = 0;
+    const Type *_type;
+    const Token *_name;
 };
-class UnionType : public StructType {};
+
+class StructType : public Type {
+  public:
+    explicit StructType(const Token *name, std::list<Member *> members)
+        : Type(TY_STRUCT, 0, ""), _tag(name) {
+        set_members(members);
+    }
+    const Token *tag() const noexcept { return _tag; }
+    virtual const std::string normalize() const;
+    virtual const std::uint64_t size() const noexcept { return _size; };
+    virtual const int align() const { return _align; }
+    virtual bool is_complete() const noexcept { return _is_complete; }
+    virtual void set_complete(bool is_complete) noexcept { _is_complete = is_complete; }
+    virtual void set_members(std::list<Member *>);
+
+    virtual bool is_struct() const noexcept { return true; }
+    virtual bool is_union() const noexcept { return false; }
+    virtual const StructType *as_struct() const noexcept { return this; }
+    virtual StructType *as_struct() noexcept { return this; }
+    Member *find_member(const char *name) const;
+    const std::list<Member*>& members() const noexcept { return _members; }
+
+  protected:
+    void set_align(int align) { _align = align; }
+    std::list<Member *> _members;
+
+  private:
+    const Token *_tag;
+    int _align        = 1;
+    bool _is_complete = false;
+};
+class UnionType : public StructType {
+  public:
+    virtual bool is_union() const noexcept { return true; }
+    explicit UnionType(const Token *name, std::list<Member *> members) : StructType(name, members) {
+        set_members(members);
+    }
+    virtual void set_members(std::list<Member *>);
+
+  private:
+};
 class ArrayType : public Derefed {
   public:
     explicit ArrayType(const Type *base, size_t size)
@@ -224,6 +297,7 @@ class ArrayType : public Derefed {
     }
     virtual bool is_array() const noexcept { return true; }
     virtual const std::uint64_t size() const noexcept { return _size; };
+    virtual const int align() const { return elem_type()->align(); }
 
   private:
     size_t _cap;
@@ -240,6 +314,7 @@ class FuncType : public Type {
     virtual const std::uint64_t size() const noexcept { return 1; };
     virtual bool equals_to(const Type *other) const;
     virtual bool is_function() const noexcept { return true; }
+    virtual const FuncType *as_function() const noexcept { return this; }
 
   private:
     const Type *_ret;
@@ -248,5 +323,4 @@ class FuncType : public Type {
 
 // usual arithmetic conversions
 const Type *uac(const Type *, const Type *);
-
 #endif

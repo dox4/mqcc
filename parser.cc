@@ -6,6 +6,7 @@
 #include "token.h"
 #include "type.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <iterator>
@@ -28,6 +29,13 @@ static Expr *conv(const Type *type, Expr *expr) {
                  expr->type()->normalize().c_str(), type->normalize().c_str());
     }
     return new Conv(type, expr);
+}
+
+static void apply_uac_on_binary(Expr *e) {
+    Binary *b     = static_cast<Binary *>(e);
+    auto uac_type = uac(b->lhs()->type(), b->rhs()->type());
+    b->set_lhs(conv(uac_type, b->lhs()));
+    b->set_rhs(conv(uac_type, b->rhs()));
 }
 
 static void check_scalar(const Type *type, const Token *tok) {
@@ -60,17 +68,35 @@ static void check_type_for_relational(Expr *e) {
     error_invalid_oprands(b->token(), b->lhs()->type(), b->rhs()->type());
 }
 
+static void check_type_for_func_call(FuncCall *fc) {
+    auto ft         = fc->left()->type()->as_function();
+    auto parameters = ft->parameters();
+    auto &argv      = fc->args();
+    if (parameters.size() != argv.size())
+        error_at(fc->left()->token(), "count of arguments does not match the function.");
+    for (std::size_t idx = 0; idx < argv.size(); idx++) {
+        auto pt = parameters.at(idx)->type();
+        auto at = argv.at(idx)->type();
+        if (!pt->is_compitable_with(at))
+            error_at(argv.at(idx)->token(), "type not compitable.");
+        if (!pt->equals_to(at)) {
+            debug("noteq: (%lu) %s vs %s", idx, pt->normalize().c_str(), at->normalize().c_str());
+            argv[idx] = new Conv(pt, argv.at(idx));
+            debug("after set: %s", argv[idx]->type()->normalize().c_str());
+        } else {
+            debug("equal: (%lu) %s vs %s", idx, pt->normalize().c_str(), at->normalize().c_str());
+        }
+    }
+    debug("=======");
+    for (auto arg : fc->args()) {
+        debug("after set: %s", arg->type()->normalize().c_str());
+    }
+}
+
 static void swap_binary_oprands(Binary *b) {
     auto rhs = b->rhs();
     b->set_rhs(b->lhs());
     b->set_lhs(rhs);
-}
-
-static void apply_uac_on_binary(Expr *e) {
-    Binary *b     = static_cast<Binary *>(e);
-    auto uac_type = uac(b->lhs()->type(), b->rhs()->type());
-    b->set_lhs(conv(uac_type, b->lhs()));
-    b->set_rhs(conv(uac_type, b->rhs()));
 }
 
 static void check_type_for_additive(Expr *e) {
@@ -131,6 +157,9 @@ TransUnit *Parser::parse() {
             // auto type = parse_typedef(base_type);
             continue;
         }
+        // forward declaration
+        if (base_type->is_struct() && try_next(';'))
+            continue;
         // global variable or function declaration/definition
         // both start with declarator
         auto prefix = parse_declarator(base_type);
@@ -182,10 +211,73 @@ list<InitDeclarator *> Parser::parse_global_variables(const HalfType *base, Attr
                          "not a compile time constant.");
         }
     }
+    expect(';');
     return ret;
 }
 
 const Type *Parser::parse_typedef(const Type *base) { return nullptr; }
+
+list<Member *> Parser::parse_member_decl(Attribute *attr, const Type *base) {
+    list<Member *> ret{};
+    do {
+        auto d = parse_declarator(base);
+        ret.push_back(new Member(d->type(), d->token()));
+    } while (try_next(','));
+    expect(';');
+    return ret;
+}
+const Type *Parser::parse_struct_union_decl() {
+    // struct or union
+    auto is_union = test(TK_UNION);
+    if (is_union)
+        next();
+    else
+        expect(TK_STRUCT);
+    // tag (opt)
+    auto tag = test(TK_NAME) ? peek() : nullptr;
+    if (tag != nullptr)
+        next();
+    // forward declaration
+    if (tag != nullptr) {
+        auto stype = _scope->find_mut_tag_in_local(tag->get_lexeme());
+        if (stype != nullptr)
+            return stype;
+        auto uncomplete_type = new StructType(tag, list<Member *>{});
+        _scope->push_tag(tag->get_lexeme(), uncomplete_type);
+    }
+    if (!try_next('{')) {
+        if (tag == nullptr)
+            error_at(peek(), "unexpected token while parsing struct or union.");
+        return _scope->find_mut_tag_in_local(tag->get_lexeme());
+    }
+    if (tag != nullptr) {
+        auto stype = _scope->find_mut_tag_in_local(tag->get_lexeme());
+        if (stype->is_complete())
+            error_at(tag, "redefined struct or union.");
+        if (stype->as_struct()->is_union() != is_union)
+            error_at(tag, "type conflicted with previous declaration.");
+    }
+    list<Member *> members;
+    while (!try_next('}')) {
+        auto attr = new Attribute;
+        auto spec = parse_declaration_specifiers(attr);
+        auto mems = parse_member_decl(attr, spec);
+        members.splice(members.end(), mems);
+    }
+    if (tag != nullptr) {
+        auto stype = _scope->find_mut_tag_in_local(tag->get_lexeme());
+        stype->as_struct()->set_members(members);
+        stype->as_struct()->set_complete(true);
+        return stype;
+    }
+    StructType *ret;
+    if (is_union)
+        ret = new UnionType(tag, members);
+    else
+        ret = new StructType(tag, members);
+    ret->set_complete(true);
+    return ret;
+}
 
 void Parser::process_storage_class(Attribute *attr) {
     auto tk = peek();
@@ -323,6 +415,7 @@ type_counter_t Parser::process_builtin(type_counter_t type_counter) {
     }
     // all candidate builtin types:
     switch (type_counter) {
+    case BuiltinTypeEnum::VOID:
     case BuiltinTypeEnum::CHAR:
     case BuiltinTypeEnum::SCHAR:
     case BuiltinTypeEnum::UCHAR:
@@ -366,6 +459,8 @@ type_counter_t Parser::process_builtin(type_counter_t type_counter) {
 
 static const Type *get_builtin_type(type_counter_t type_counter) {
     switch (type_counter) {
+    case BuiltinTypeEnum::VOID:
+        return &BuiltinType::Void;
     case BuiltinTypeEnum::CHAR:
     case BuiltinTypeEnum::SCHAR:
         return &BuiltinType::Char;
@@ -422,28 +517,25 @@ const Type *Parser::parse_declaration_specifiers(Attribute *attr) {
     // const Type *type;
     while (true) {
         auto tk = peek();
-        if (tk->is_builtin_type()) {
+        if (tk->is_builtin_type())
             type_counter = process_builtin(type_counter);
-        } else if (tk->is_storage_class()) {
-            // if (attr == nullptr)
-            //     error_at(tk, "storage class is not allowed here.");
+        else if (tk->is_storage_class())
             process_storage_class(attr);
-        } else if (tk->get_type() == TK_NAME) {
+        else if (tk->get_type() == TK_NAME) {
             // process user-define types or variable name
             auto name = tk->get_lexeme();
-            auto t    = _scope->resolve_name(name);
+            auto t    = _scope->find_typedef(name);
             // find type
             if (t != nullptr) {
                 if (type_counter != 0) {
                     error_at(tk, "user-defined type should not follow up builtin types.");
                 }
-                return t->type();
+                return t;
             }
             return get_builtin_type(type_counter);
-
-        } else if (tk->get_type() == TK_STRUCT || tk->get_type() == TK_UNION) {
-            // process struct or union
-        } else
+        } else if (test(TK_UNION) || test(TK_STRUCT))
+            return parse_struct_union_decl();
+        else
             return get_builtin_type(type_counter);
     }
 }
@@ -609,6 +701,8 @@ Type *Parser::parse_func_or_array_decl(const Type *fake_base, const char *name) 
 Block *Parser::parse_declaration() {
     Attribute *attr = new Attribute;
     auto type       = parse_declaration_specifiers(attr);
+    if (try_next(';') && type->is_struct())
+        return nullptr;
     return parse_init_declarators(type, attr);
 }
 
@@ -634,6 +728,7 @@ Expr *Parser::process_const() {
 //   X  constant
 //   O  string-literal
 //   O  ( expression )
+//   O  ( block-stmt )
 //   X  generic-selection
 Expr *Parser::parse_primary() {
     auto tk = peek();
@@ -650,7 +745,12 @@ Expr *Parser::parse_primary() {
     }
     case '(': {
         next();
-        auto expr = parse_expr();
+        Expr *expr;
+        if (test('{')) {
+            expr = new StmtExpr(parse_block());
+        } else {
+            expr = parse_expr();
+        }
         expect(')');
         return expr;
     }
@@ -662,8 +762,10 @@ Expr *Parser::parse_primary() {
     // no warning
     return nullptr;
 }
-Expr *Parser::parse_ident() {
+Identifier *Parser::parse_ident() {
     auto tk = peek();
+    if (tk->get_type() != TK_NAME)
+        error_at(tk, "expect identifier, but get '%s'.", tk->get_lexeme());
     next();
     return new Identifier(tk, _scope);
 }
@@ -686,7 +788,9 @@ Expr *Parser::parse_postfix() {
         // parse arguments
         if (test('(')) {
             vector<Expr *> args = parse_args();
-            ret                 = new FuncCall(ret, args);
+            auto fc             = new FuncCall(ret, args);
+            check_type_for_func_call(fc);
+            ret = fc;
             continue;
         }
         // subscription
@@ -708,6 +812,28 @@ Expr *Parser::parse_postfix() {
         }
         if (try_next(TK_DEC)) {
             ret = new PostDec(ret);
+            continue;
+        }
+        auto pk = peek();
+        if (pk->get_type() == '.') {
+            if (!ret->type()->is_struct())
+                error_at(ret->token(), "expect struct type, but got type %s.",
+                         ret->type()->normalize().c_str());
+            next();
+            auto ident = parse_ident();
+            if (ret->type()->as_struct()->find_member(ident->get_value()) == nullptr)
+                error_at(ident->token(), "not an member of struct.");
+            ret = new MemberAccess(ret, ident, pk);
+            continue;
+        }
+        if (pk->get_type() == TK_ARROW) {
+            if (!ret->type()->is_pointer() || !ret->type()->derefed()->is_struct())
+                error_at(ret->token(), "'->' operator could only apply on a pointer to a struct.");
+            next();
+            auto ident = parse_ident();
+            if (ret->type()->derefed()->as_struct()->find_member(ident->get_value()) == nullptr)
+                error_at(ident->token(), "not an member of struct.");
+            ret = new MemberAccess(ret, ident, pk);
             continue;
         }
         break;
@@ -782,7 +908,7 @@ Expr *Parser::parse_cast() {
     if (try_next('(')) {
         // TODO: parse_type_name
         auto name = peek();
-        auto type = _scope->find_type(name->get_lexeme());
+        auto type = _scope->find_tag(name->get_lexeme());
         if (type) {
             expect(')');
             auto expr = parse_cast();
@@ -858,6 +984,7 @@ Expr *Parser::parse_relational() {
         next();
         expr = new Relational(op, expr, parse_shift());
         check_type_for_relational(expr);
+        apply_uac_on_binary(expr);
     }
     return expr;
 }
@@ -873,6 +1000,7 @@ Expr *Parser::parse_equality() {
         next();
         expr = new Equality(op, expr, parse_relational());
         check_type_for_relational(expr);
+        apply_uac_on_binary(expr);
     }
     return expr;
 }
@@ -887,6 +1015,7 @@ Expr *Parser::parse_bit_and() {
         next();
         expr = new BitAnd(op, expr, parse_equality());
         check_type_integers(expr);
+        apply_uac_on_binary(expr);
     }
     return expr;
 }
@@ -901,6 +1030,7 @@ Expr *Parser::parse_xor() {
         next();
         expr = new BitXor(op, expr, parse_bit_and());
         check_type_integers(expr);
+        apply_uac_on_binary(expr);
     }
     return expr;
 }
@@ -915,6 +1045,7 @@ Expr *Parser::parse_bit_or() {
         next();
         expr = new BitOr(op, expr, parse_xor());
         check_type_integers(expr);
+        apply_uac_on_binary(expr);
     }
     return expr;
 }
@@ -966,25 +1097,50 @@ Expr *Parser::parse_assignment() {
     auto expr = parse_conditional();
     if (expr->kind() <= EXPR_UNARY) {
         if (expr->kind() == EXPR_IDENT) {
-            auto obj = _scope->find_var(expr->token()->get_lexeme());
-            if (obj == nullptr) {
-                warn_at(expr->token(), "use undeclared variable, assume as int.");
-                _scope->push_var(expr->token()->get_lexeme(),
-                                 new Object(expr->token(), &BuiltinType::Int, nullptr));
+            check_identifier(expr->token());
+        }
+        if (peek()->is_assign_operator()) {
+            auto token = peek();
+            next();
+            auto rhs = parse_assignment();
+            auto a   = new Assignment(token, expr, rhs);
+            debug_token(peek());
+            check_assignment(a);
+            return a;
+        }
+    }
+    // for comma operator
+    if (expr->token() != nullptr && expr->token()->get_type() == ',') {
+        auto comma = static_cast<Comma *>(expr);
+        if (comma->rhs()->kind() <= EXPR_UNARY) {
+            if (comma->rhs()->kind() == EXPR_IDENT) {
+                check_identifier(comma->rhs()->token());
             }
         }
         if (peek()->is_assign_operator()) {
-            auto tk_type = peek()->get_type();
+            auto token = peek();
             next();
             auto rhs = parse_assignment();
-            return new Assignment(expr, rhs, tk_type);
+            auto a   = new Assignment(token, expr, rhs);
+            check_assignment(a);
+            return a;
         }
     }
     return expr;
 }
 
+Expr *Parser::parse_comma() {
+    auto expr = parse_assignment();
+    while (test(',')) {
+        auto op = peek();
+        next();
+        expr = new Comma(op, expr, parse_assignment());
+    }
+    return expr;
+}
+
 // statement needs expression
-Expr *Parser::parse_expr() { return parse_assignment(); }
+Expr *Parser::parse_expr() { return parse_comma(); }
 // make labels while parsing case and default statements
 static string caselabelmaker() {
     static int label_conter = 0;
@@ -1119,7 +1275,11 @@ Stmt *Parser::parse_for() {
     if (try_next(';')) {
         init = Empty::instance();
     } else if (maybe_decl()) {
-        init = parse_declaration();
+        auto decl = parse_declaration();
+        if (decl == nullptr)
+            init = Empty::instance();
+        else
+            init = decl;
     } else {
         init = new ExprStmt(parse_expr());
         expect(';');
@@ -1180,7 +1340,7 @@ Stmt *Parser::parse_jump() {
         }
         auto ret = parse_expr();
         expect(';');
-        return new Return(conv(_cft->return_type(), ret));
+        return new Return(conv(_cfd->signature()->return_type(), ret));
     }
     default:
         unreachable();
@@ -1197,7 +1357,10 @@ Stmt *Parser::parse_jump() {
 //   O  jump-statement
 Stmt *Parser::parse_stmt() {
     if (maybe_decl()) {
-        return parse_declaration();
+        auto decl = parse_declaration();
+        if (decl == nullptr)
+            return Empty::instance();
+        return decl;
     }
     switch (peek()->get_type()) {
     case ';':
@@ -1249,16 +1412,29 @@ Stmt *Parser::parse_stmt() {
 }
 
 // function definition needs compound statements aka. block
-Block *Parser::parse_block() {
+Block *Parser::parse_func_body() {
     expect('{');
     vector<BlockItem *> items;
     while (!try_next('}')) {
         auto item = parse_stmt();
-        if (item->is_return_stmt() && _cft == nullptr)
+        items.push_back(item);
+    }
+    auto result = new Block(_scope, items);
+    return result;
+}
+
+Block *Parser::parse_block() {
+    _scope = _scope->drill_down();
+    expect('{');
+    vector<BlockItem *> items;
+    while (!try_next('}')) {
+        auto item = parse_stmt();
+        if (item->is_return_stmt() && _cfd == nullptr)
             error_at(peek(), "return statement found out of a function body.");
         items.push_back(item);
     }
     auto result = new Block(_scope, items);
+    _scope      = _scope->float_up();
     return result;
 }
 
@@ -1274,20 +1450,21 @@ FuncDef *Parser::parse_func_def(const HalfType *base) {
     // registry func name to scope
     _scope      = _scope->drill_down();
     auto params = func_type->parameters();
+    // set current funtion type
+    _cfd = new FuncDef(base->token(), func_type, nullptr);
     for (auto param : params) {
         auto ptype  = param->type();
         auto ptoken = param->token();
         auto obj    = new Object(ptoken, ptype, nullptr);
+        _cfd->append_local_variable(obj);
         _scope->push_var(param->token()->get_lexeme(), obj);
     }
-    // set current funtion type
-    _cft      = func_type;
-    auto body = parse_block();
-    // clear current function type
-    _cft   = nullptr;
+    auto body = parse_func_body();
+    auto ret  = _cfd;
+    ret->set_body(body);
+    _cfd   = nullptr;
     _scope = _scope->float_up();
-    // assert _scope == _global_scope
-    return new FuncDef(base->token(), func_type, body);
+    return ret;
 }
 
 const Type *Parser::parse_type_name() { return nullptr; }
@@ -1296,8 +1473,13 @@ void Parser::check_init_declarator(const InitDeclarator *id, Attribute *attr) {
     auto obj   = _scope->find_var_in_local(token->get_lexeme());
     auto type  = id->halftype()->type();
     // first defined here
-    if (!obj) {
-        _scope->push_var(token->get_lexeme(), new Object(token, type, attr));
+    // debug("_scope: %p", _scope);
+    if (obj == nullptr) {
+        obj = new Object(token, type, attr);
+        if (_cfd != nullptr && !attr->is_static)
+            _cfd->append_local_variable(obj);
+        _scope->push_var(token->get_lexeme(), obj);
+        // debug("scope: %s", _scope->obj_to_string().c_str());
         return;
     }
     // check if already defined
@@ -1333,6 +1515,31 @@ void Parser::check_func_declaration(const HalfType *prefix, Attribute *attr) {
     // check linkage
     if (!attr->equals_to(varattr) || !attr->is_extern)
         error_at(prefix->token(), "redeclared with non-extern.");
+}
+void Parser::check_identifier(const Token *token) {
+    auto obj = _scope->find_var(token->get_lexeme());
+    if (obj == nullptr) {
+        warn_at(token, "use undeclared variable, assume as int.");
+        auto o = new Object(token, &BuiltinType::Int, nullptr);
+        if (_cfd != nullptr)
+            _cfd->append_local_variable(o);
+        _scope->push_var(token->get_lexeme(), o);
+    }
+}
+void Parser::check_assignment(Assignment *a) {
+    debug_token(a->rhs()->token());
+    debug_token(a->lhs()->token());
+    debug("lhs type is nullptr? %d", a->lhs()->type() == nullptr);
+    debug("lhs type %s", a->lhs()->type()->normalize().c_str());
+    debug("rhs type is nullptr? %d", a->rhs()->type() == nullptr);
+    debug("rhs type %s", a->rhs()->type()->normalize().c_str());
+    if (a->lhs()->type()->is_compitable_with(a->rhs()->type())) {
+        if (!a->lhs()->type()->equals_to(a->rhs()->type()))
+            a->set_rhs(conv(a->lhs()->type(), a->rhs()));
+        return;
+    }
+    error_at(a->token(), "assign %s with uncompitable type %s.",
+             a->lhs()->type()->normalize().c_str(), a->rhs()->type()->normalize().c_str());
 }
 
 bool Parser::maybe_decl() {
