@@ -9,6 +9,7 @@ using namespace std;
 // const Type *Type::Dummy = new Type(TY_DUMMY, 0);
 
 const BuiltinType BuiltinType::Void    = BuiltinType(TY_VOID, "void", 1, false);
+const BuiltinType BuiltinType::Bool    = BuiltinType(TY_BOOL, "_Bool", 1, false);
 const BuiltinType BuiltinType::Char    = BuiltinType(TY_CHAR, "char", 1, true);
 const BuiltinType BuiltinType::UChar   = BuiltinType(TY_CHAR, "unsigned char", 1, false);
 const BuiltinType BuiltinType::Short   = BuiltinType(TY_SHORT, "short", 2, true);
@@ -72,7 +73,7 @@ void UnionType::set_members(std::list<Member *> members) {
     _members = members;
     if (!_members.empty()) {
         std::uint64_t size = 0;
-        int align = 0;
+        int align          = 0;
         for (auto &m : members) {
             m->set_offset(0);
             if (m->type()->size() > size)

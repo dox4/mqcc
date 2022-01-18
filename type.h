@@ -37,6 +37,7 @@ enum TypeKind {
 int align_to(int offset, int align);
 class StructType;
 class FuncType;
+class Derefed;
 class Type {
   protected:
     TypeKind _kind;
@@ -81,6 +82,10 @@ class Type {
     };
     virtual bool is_struct() const noexcept { return false; }
     virtual bool is_complete() const noexcept { return true; }
+    virtual Derefed *as_derefed() noexcept {
+        unimplement();
+        return nullptr;
+    }
     virtual const StructType *as_struct() const noexcept {
         unimplement();
         return nullptr;
@@ -160,6 +165,7 @@ class BuiltinType : public Type {
 
   public:
     static const BuiltinType Void;
+    static const BuiltinType Bool;
     static const BuiltinType Char;
     static const BuiltinType UChar;
     static const BuiltinType Short;
@@ -199,7 +205,9 @@ class Derefed : public Type {
         : Type(kind, size, ""), _derefed(derefed) {}
     virtual bool is_derefed() const noexcept { return true; }
     virtual const Type *derefed() const noexcept { return _derefed; }
+    virtual Derefed *as_derefed() noexcept { return this; }
     virtual const int align() const { return 8; }
+    virtual void set_derefed(const Type *derefed) { _derefed = derefed; }
 
   private:
     const Type *_derefed;
@@ -264,7 +272,7 @@ class StructType : public Type {
     virtual const StructType *as_struct() const noexcept { return this; }
     virtual StructType *as_struct() noexcept { return this; }
     Member *find_member(const char *name) const;
-    const std::list<Member*>& members() const noexcept { return _members; }
+    const std::list<Member *> &members() const noexcept { return _members; }
 
   protected:
     void set_align(int align) { _align = align; }

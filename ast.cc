@@ -103,8 +103,10 @@ void Identifier::accept(Visitor *v) { v->visit_identifier(this); }
 const Type *Identifier::type() const noexcept {
     // debug("scope at(%p): %s", _scope, _scope->obj_to_string().c_str());
     // debug("find variable %s: %p", _token->get_lexeme(), _scope->find_var(_token->get_lexeme()));
-    if (_scope->find_var(_token->get_lexeme()) == nullptr)
-        return nullptr;
+    if (_scope->find_var(_token->get_lexeme()) == nullptr) {
+        warn_at(_token, "use undeclared name, assuming as `int`.");
+        return &BuiltinType::Int;
+    }
     return _scope->find_var(_token->get_lexeme())->type();
 }
 
@@ -170,7 +172,6 @@ void FuncDef::set_offset_for_local_vars() {
         offset += o->type()->size();
         offset = align_to(offset, o->type()->align());
         o->set_offset(-offset);
-        debug("var name: %s, offset: %d", o->ident()->get_lexeme(), o->offset());
     }
     _stack_size = align_to(offset, 16);
 }

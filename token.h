@@ -2,6 +2,7 @@
 #define _MQCC_TOKEN_H__
 
 #include "srcpos.h"
+#include <cstdint>
 #include <memory>
 #include <string_view>
 
@@ -113,6 +114,7 @@ enum TokenType {
 
     TK_STRING = 300, // string literal
     TK_INUMBER,      // integer number
+    TK_CHARACTER,    // char literal
     TK_FNUMBER,      // float number
     TK_NAME,         // identifier
 
@@ -125,8 +127,10 @@ class Token {
 
     explicit Token(int tp, const SourcePosition *);
     explicit Token(int tp, const char *literal, const SourcePosition *);
+    explicit Token(int tp, std::int64_t value, const char *literal, const SourcePosition *);
 
     const char *get_lexeme() const noexcept { return _lexeme; }
+    std::int64_t value() const noexcept { return _value; }
     const SourcePosition *get_position() const noexcept { return _sp; }
     bool is_ignored() const noexcept;
     bool is_type_token() const noexcept;
@@ -142,6 +146,8 @@ class Token {
 
     static const Token *make_token(int tp, const SourcePosition *sp);
 
+    static const Token *make_token(int tp, int ch, const char *literal, const SourcePosition *sp);
+
     static const Token *make_token(int tp, const char *literal, const SourcePosition *sp) {
         return new Token(tp, literal, sp);
     }
@@ -150,6 +156,7 @@ class Token {
   private:
     int _type;
     const char *_lexeme;
+    std::int64_t _value = 0;
     const SourcePosition *_sp;
 };
 

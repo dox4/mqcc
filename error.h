@@ -27,6 +27,7 @@ inline void error_unexpected(char expected, char actual) {
             fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                                        \
             fprintf(stderr, __VA_ARGS__);                                                          \
             fprintf(stderr, "\n");                                                                 \
+            exit(1);                                                                               \
         }                                                                                          \
     } while (false)
 #define set_mark() debug("set a mark at %s:%d", __FILE__, __LINE__)

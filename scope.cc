@@ -4,21 +4,23 @@
 #include <sstream>
 using namespace std;
 
-Object *Scope::resolve_name(const std::string_view &name) {
-    if (_vars.find(name) != _vars.end())
-        return _vars.at(name);
-    return nullptr;
-}
-
-Object *Scope::resolve_name_in_local(const std::string_view &name) { return nullptr; }
-
-const Type *Scope::find_typedef(std::string_view name) const {
-    auto nt = _typedefs.find(name);
-    if (nt == _typedefs.end())
-        return _parent == nullptr ? nullptr : _parent->find_typedef(name);
-    return nt->second;
-}
-void Scope::push_typedef(std::string_view name, Type *type) {}
+// Object *Scope::resolve_name(const std::string_view &name) {
+//     if (_vars.find(name) != _vars.end())
+//         return _vars.at(name);
+//     return nullptr;
+// }
+// 
+// Object *Scope::resolve_name_in_local(const std::string_view &name) { return nullptr; }
+// 
+// const Type *Scope::find_typedef(std::string_view name) const {
+//     auto nt = _typedefs.find(name);
+//     if (nt == _typedefs.end())
+//         return _parent == nullptr ? nullptr : _parent->find_typedef(name);
+//     return nt->second;
+// }
+// void Scope::push_typedef(std::string_view name, const Type *type) {
+//     _typedefs.insert({name, type});
+// }
 const Type *Scope::find_tag_in_local(const std::string_view &name) const {
     if (_tags.find(name) != _tags.end())
         return _tags.at(name);

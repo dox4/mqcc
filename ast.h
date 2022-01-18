@@ -35,7 +35,7 @@ class AstNode {
     virtual void accept(Visitor *visitor);
     virtual ~AstNode() = default;
     virtual bool is_return_stmt() const noexcept { return false; }
-    virtual bool is_function() const noexcept { return false; }
+    // virtual bool is_func_def() const noexcept { return false; }
     virtual bool is_block() const noexcept { return false; }
 };
 
@@ -345,6 +345,8 @@ class IntConst : public Const {
         : Const(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::Int) {}
     explicit IntConst(const Token *token, std::uint64_t ival)
         : Const(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::ULong) {}
+    explicit IntConst(const Token *token, std::uint64_t ival, const Type *type)
+        : Const(EXPR_INT), _value(ival), _token(token), _type(type) {}
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept { return _type; }
     virtual bool is_int_const() const noexcept { return true; }
@@ -410,7 +412,8 @@ class Cast : public Expr {
     explicit Cast(const Type *to, Expr *expr) : Expr(EXPR_CAST), _to(to), _expr(expr) {}
     const Type *to_type() const noexcept { return _to; }
     Expr *from_expr() const noexcept { return _expr; }
-    virtual void accept(Visitor *);
+    virtual const Type *type() const noexcept override { return to_type(); }
+    virtual void accept(Visitor *) override;
 
   private:
     const Type *_to;
@@ -427,9 +430,7 @@ class Assignment : public Binary {
 // implicit conversion expression
 class Conv : public Expr {
   public:
-    explicit Conv(const Type *type, Expr *expr) : Expr(EXPR_CONV), _type(type), _expr(expr) {
-        debug("init from %s to %s", _expr->type()->normalize().c_str(), _type->normalize().c_str());
-    }
+    explicit Conv(const Type *type, Expr *expr) : Expr(EXPR_CONV), _type(type), _expr(expr) {}
     virtual void accept(Visitor *);
     const Type *type() const noexcept { return _type; }
     Expr *expr() const { return _expr; }
@@ -703,7 +704,7 @@ class FuncDef : public ExtDecl {
     void set_offset_for_local_vars();
     std::list<Object *> local_vars() const noexcept { return _locals; }
     const FuncType *signature() const noexcept { return _singnature; }
-    virtual bool is_function() const noexcept { return true; }
+    // virtual bool is_func_def() const noexcept { return true; }
 
   private:
     const Token *_func_name;

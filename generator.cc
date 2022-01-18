@@ -98,7 +98,7 @@ constexpr string_view to_quad[][2] {
     // zero-extend word to quad  sign-extend word to quad
     {  "movzwq",                 "movswq"},
     // zero-extend long to quad  sign-extend long to quad
-    {  "movzx",                  "movsx"},
+    {  "movzxd",                  "movsxd"},
 };
 
 // ConVerT with Truncation Scalar Single/Double-precision floating-point value to Signed Integer
@@ -226,6 +226,7 @@ static const string iinst(const string &ins, int width) {
     case 8:
         return ins + "q";
     }
+    debug("inst: %s, width: %d", ins.c_str(), width);
     unreachable();
     return "";
 }
@@ -621,6 +622,10 @@ void Generator::emit_cvt_to_int(const Type *from, const Type *to) {
         emit(f2i[to->size() == 8][from->size() == 8], fdest(), idest(to->size()));
     } else {
         emit_promot_int(from);
+    }
+    if (to == &BuiltinType::Bool && from != &BuiltinType::Bool) {
+        emit("movq", 0, r11);
+        emit_icmp("setne", from->size());
     }
 }
 
@@ -1295,6 +1300,11 @@ void Generator::visit_init_declarator(InitDeclarator *id) {
         auto token = id->halftype()->token();
         auto name  = token->get_lexeme();
         auto obj   = _current_scope->find_var_in_local(name);
+        if (id->is_initialized()) {
+            if (!id->halftype()->type()->equals_to(id->initializer()->assignment()->type())) {
+                emit_cvt(id->initializer()->assignment()->type(), id->halftype()->type());
+            }
+        }
         // deal with floating number
         if (type->is_float()) {
             emit(fmov(type->size()), fdest(), simple_addr(obj));
@@ -1316,14 +1326,17 @@ void Generator::visit_identifier(Identifier *ident) {
 
 void Generator::visit_conv(Conv *conv) {
     visit(conv->expr());
-    debug("from %s to %s", conv->expr()->type()->normalize().c_str(),
-          conv->type()->normalize().c_str());
     if (conv->type()->equals_to(conv->expr()->type()))
         return;
     emit_cvt(conv->expr()->type(), conv->type());
 }
 
-void Generator::visit_cast(Cast *) {}
+void Generator::visit_cast(Cast *cast) {
+    visit(cast->from_expr());
+    if (cast->to_type()->equals_to(cast->from_expr()->type()))
+        return;
+    emit_cvt(cast->from_expr()->type(), cast->to_type());
+}
 void Generator::visit_unary(Unary *ue) {
     switch (ue->unary_type()) {
     case TK_INC: {
@@ -1445,7 +1458,6 @@ void LValueGenerator::visit_identifier(Identifier *ident) {
     else {
         auto stack_offset = obj->offset();
         _obj_addr.emplace(ObjAddr::base_addr(stack_offset, rbp));
-        debug("var name: %s, offset: %d", ident->get_value(), stack_offset);
         _gtr->emit("#", name, _obj_addr.value()->to_string());
     }
 }

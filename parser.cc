@@ -69,6 +69,8 @@ static void check_type_for_relational(Expr *e) {
 }
 
 static void check_type_for_func_call(FuncCall *fc) {
+    mqassert(fc->left()->type()->is_function(), "lhs of function call must be function: %s",
+             fc->token()->get_lexeme());
     auto ft         = fc->left()->type()->as_function();
     auto parameters = ft->parameters();
     auto &argv      = fc->args();
@@ -80,16 +82,8 @@ static void check_type_for_func_call(FuncCall *fc) {
         if (!pt->is_compitable_with(at))
             error_at(argv.at(idx)->token(), "type not compitable.");
         if (!pt->equals_to(at)) {
-            debug("noteq: (%lu) %s vs %s", idx, pt->normalize().c_str(), at->normalize().c_str());
             argv[idx] = new Conv(pt, argv.at(idx));
-            debug("after set: %s", argv[idx]->type()->normalize().c_str());
-        } else {
-            debug("equal: (%lu) %s vs %s", idx, pt->normalize().c_str(), at->normalize().c_str());
         }
-    }
-    debug("=======");
-    for (auto arg : fc->args()) {
-        debug("after set: %s", arg->type()->normalize().c_str());
     }
 }
 
@@ -138,7 +132,7 @@ static void check_type_scalars(Expr *e) {
 
 /// static functions end
 
-Parser::Parser(Scanner *scanner) : _scanner(scanner), _lookups(), _consumed() {
+Parser::Parser(Scanner *scanner) : _scanner(scanner), /*_lookups(), _consumed()*/ _tokens() {
     _scope = new Scope();
 }
 
@@ -154,7 +148,7 @@ TransUnit *Parser::parse() {
         auto base_type = parse_declaration_specifiers(attr);
         // typedef
         if (attr->is_typedef) {
-            // auto type = parse_typedef(base_type);
+            parse_typedef(base_type, attr);
             continue;
         }
         // forward declaration
@@ -215,7 +209,16 @@ list<InitDeclarator *> Parser::parse_global_variables(const HalfType *base, Attr
     return ret;
 }
 
-const Type *Parser::parse_typedef(const Type *base) { return nullptr; }
+void Parser::parse_typedef(const Type *base, Attribute *attr) {
+    do {
+        auto declarator = parse_declarator(base);
+        if (declarator->token() != nullptr) {
+            auto *obj = new Object(declarator->token(), declarator->type(), attr);
+            _scope->push_var(declarator->token()->get_lexeme(), obj);
+        }
+    } while (try_next(','));
+    expect(';');
+}
 
 list<Member *> Parser::parse_member_decl(Attribute *attr, const Type *base) {
     list<Member *> ret{};
@@ -326,10 +329,11 @@ void Parser::process_storage_class(Attribute *attr) {
 struct BuiltinTypeEnum {
     // single keyword
     static constexpr type_counter_t VOID     = 1 << 0;
-    static constexpr type_counter_t CHAR     = 1 << 2;
-    static constexpr type_counter_t SHORT    = 1 << 4;
-    static constexpr type_counter_t INT      = 1 << 6;
-    static constexpr type_counter_t LONG     = 1 << 8;
+    static constexpr type_counter_t BOOL     = 1 << 2;
+    static constexpr type_counter_t CHAR     = 1 << 4;
+    static constexpr type_counter_t SHORT    = 1 << 6;
+    static constexpr type_counter_t INT      = 1 << 8;
+    static constexpr type_counter_t LONG     = 1 << 10;
     static constexpr type_counter_t FLOAT    = 1 << 12;
     static constexpr type_counter_t DOUBLE   = 1 << 14;
     static constexpr type_counter_t SIGNED   = 1 << 16;
@@ -385,6 +389,9 @@ type_counter_t Parser::process_builtin(type_counter_t type_counter) {
     case TK_VOID:
         type_counter += BuiltinTypeEnum::VOID;
         break;
+    case TK__BOOL:
+        type_counter += BuiltinTypeEnum::BOOL;
+        break;
     case TK_CHAR:
         type_counter += BuiltinTypeEnum::CHAR;
         break;
@@ -416,6 +423,7 @@ type_counter_t Parser::process_builtin(type_counter_t type_counter) {
     // all candidate builtin types:
     switch (type_counter) {
     case BuiltinTypeEnum::VOID:
+    case BuiltinTypeEnum::BOOL:
     case BuiltinTypeEnum::CHAR:
     case BuiltinTypeEnum::SCHAR:
     case BuiltinTypeEnum::UCHAR:
@@ -461,6 +469,8 @@ static const Type *get_builtin_type(type_counter_t type_counter) {
     switch (type_counter) {
     case BuiltinTypeEnum::VOID:
         return &BuiltinType::Void;
+    case BuiltinTypeEnum::BOOL:
+        return &BuiltinType::Bool;
     case BuiltinTypeEnum::CHAR:
     case BuiltinTypeEnum::SCHAR:
         return &BuiltinType::Char;
@@ -501,10 +511,8 @@ static const Type *get_builtin_type(type_counter_t type_counter) {
         return &BuiltinType::Double;
     case BuiltinTypeEnum::LDOUBLE:
         return &BuiltinType::LDouble;
-
-    default:
-        unreachable();
     }
+    unreachable();
     // no warning
     return nullptr;
 }
@@ -514,30 +522,44 @@ static const Type *get_builtin_type(type_counter_t type_counter) {
 // int a -> `int` is a declaration-specifier
 const Type *Parser::parse_declaration_specifiers(Attribute *attr) {
     type_counter_t type_counter = 0;
-    // const Type *type;
-    while (true) {
+    while (maybe_decl()) {
         auto tk = peek();
         if (tk->is_builtin_type())
             type_counter = process_builtin(type_counter);
         else if (tk->is_storage_class())
             process_storage_class(attr);
+        else if (test(TK_UNION) || test(TK_STRUCT))
+            return parse_struct_union_decl();
         else if (tk->get_type() == TK_NAME) {
-            // process user-define types or variable name
+            // process user-define types
             auto name = tk->get_lexeme();
-            auto t    = _scope->find_typedef(name);
-            // find type
-            if (t != nullptr) {
+            auto obj  = _scope->find_var_in_local(name);
+            // check if the type defined in local scope
+            if (obj != nullptr) {
+                // name could not be redefined in the same scope
+                // actually, chibicc supports name redefined in the same scope
+                // while nether gcc nor clang supports
                 if (type_counter != 0) {
                     error_at(tk, "user-defined type should not follow up builtin types.");
                 }
-                return t;
+                next();
+                return obj->type();
+            } else {
+                // type must defined in parent scope
+                // so it's name could be redefined
+                if (type_counter != 0)
+                    return get_builtin_type(type_counter);
+                auto o2 = _scope->find_var(name);
+                next();
+                return o2->type();
             }
-            return get_builtin_type(type_counter);
-        } else if (test(TK_UNION) || test(TK_STRUCT))
-            return parse_struct_union_decl();
-        else
-            return get_builtin_type(type_counter);
+        }
     }
+    if (type_counter != 0) {
+        return get_builtin_type(type_counter);
+    }
+    warn_at(peek(), "declaration specifiers not found, assuming as `int`.");
+    return &BuiltinType::Int;
 }
 
 // declarator:
@@ -582,9 +604,8 @@ Block *Parser::parse_init_declarators(const Type *base, Attribute *attr) {
 
 // direct declarator needs pointer
 const Type *Parser::parse_pointer(const Type *base) {
-    while (test(TK_STAR)) {
+    while (try_next(TK_STAR)) {
         base = new PointerType(base);
-        next();
     }
     return base;
 }
@@ -594,27 +615,46 @@ const Type *Parser::parse_pointer(const Type *base) {
 //               "[" ...
 const HalfType *Parser::parse_direct_declarator(const Type *base) {
     auto tk = peek();
-    const Token *name;
     // identifier
     if (tk->get_type() == TK_NAME) {
-        name = tk;
+        auto name = tk;
+        next();
+        if (test('[') || test('(')) {
+            auto type = parse_func_or_array_decl(base);
+            return new HalfType(name, type);
+        }
+        return new HalfType(name, base);
     }
     // ( declarator )
-    else if (tk->get_type() == '(') {
-        next();
-        auto prefix = parse_declarator(base);
-        base        = prefix->type();
+    else if (try_next('(')) {
+        // type here may be not right.
+        // the declarator like int (*x)[3] will be parsed as "array[3] of pointer to `int`"
+        // actually, it should be "pointer to array[3] of `int`".
+        // this mistake only occurs when the inner declarator has a derefed type
+        // and the outer declarator leads to a function or an array.
+        // if the inner declarator does not have a derefed type, its type must be the same as the
+        // outer one. if the outer declarator does not lead to an array or a function, the result
+        // needs no correctness.
+        // so we igonre this result and record `_index`, when we get the right derefed type, we'll
+        // reparse the declarator
+        // this function is similar with the function that chibicc used.
+        auto anchor = index();
+        parse_declarator(base);
         expect(')');
-        name = prefix->token();
-    } else {
-        error_at(tk, "unexpected token while parsing direct declarator");
+        // we get the right derefed type here
+        auto type    = parse_func_or_array_decl(base);
+        auto anchor2 = index();
+        // backward and reparse
+        set_index(anchor);
+        // re-parse the declarator within "(" and ")"
+        auto ret = parse_declarator(type);
+        // set the `_index` to the end of type suffix which we record in `anchor2`
+        set_index(anchor2);
+        return ret;
     }
-    next();
-    if (test('[') || test('(')) {
-        auto type = parse_func_or_array_decl(base, name->get_lexeme());
-        return new HalfType(name, type);
-    }
-    return new HalfType(name, base);
+    // with no identifier, here's an abstract declarator
+    base = parse_func_or_array_decl(base);
+    return new HalfType(nullptr, base);
 }
 
 const HalfType *Parser::parse_parameter() {
@@ -659,11 +699,11 @@ Expr *Parser::parse_array_dimen() {
 // X [ static type-qualifier-list(opt) assignment-expression ]
 // X [ type-qualifier-list static assignment-expression ]
 // X [ type-qualifier-list(opt) * ]
-Type *Parser::parse_func_or_array_decl(const Type *fake_base, const char *name) {
+const Type *Parser::parse_func_or_array_decl(const Type *fake_base) {
     if (test('(')) {
         auto ret_params = parse_parameters();
         if (test('[') || test('(')) {
-            fake_base = parse_func_or_array_decl(fake_base, name);
+            fake_base = parse_func_or_array_decl(fake_base);
         }
         if (fake_base->is_array())
             error_at(peek(), "cannot declare a function that return an array type.");
@@ -672,13 +712,13 @@ Type *Parser::parse_func_or_array_decl(const Type *fake_base, const char *name) 
     if (test('[')) {
         auto dimen = parse_array_dimen();
         if (test('[') || test('(')) {
-            fake_base = parse_func_or_array_decl(fake_base, name);
+            fake_base = parse_func_or_array_decl(fake_base);
         }
         if (fake_base->is_function())
-            error_at(peek(), "cannot declare an arrya of functions.");
+            error_at(peek(), "cannot declare an array of functions.");
         return new ArrayType(fake_base, strtoul(dimen->token()->get_lexeme(), nullptr, 10));
     }
-    return nullptr;
+    return fake_base;
 }
 
 // declarations
@@ -701,6 +741,10 @@ Type *Parser::parse_func_or_array_decl(const Type *fake_base, const char *name) 
 Block *Parser::parse_declaration() {
     Attribute *attr = new Attribute;
     auto type       = parse_declaration_specifiers(attr);
+    if (attr->is_typedef) {
+        parse_typedef(type, attr);
+        return nullptr;
+    }
     if (try_next(';') && type->is_struct())
         return nullptr;
     return parse_init_declarators(type, attr);
@@ -717,6 +761,10 @@ Expr *Parser::process_const() {
     if (tk->get_type() == TK_INUMBER) {
         next();
         return new IntConst(tk);
+    }
+    if (tk->get_type() == TK_CHARACTER) {
+        next();
+        return new IntConst(tk, tk->value(), &BuiltinType::Char);
     }
     unreachable();
     return nullptr;
@@ -735,6 +783,7 @@ Expr *Parser::parse_primary() {
     switch (tk->get_type()) {
     case TK_INUMBER:
     case TK_FNUMBER:
+    case TK_CHARACTER:
         return process_const();
     case TK_NAME:
         return parse_ident();
@@ -889,8 +938,24 @@ Expr *Parser::parse_unary() {
         auto tok = peek();
         next();
         if (try_next('(')) {
-            auto type = parse_type_name();
-            if (type) {
+            auto tok = peek();
+            if (tok->get_type() == TK_NAME) {
+                auto defined = _scope->find_var(tok->get_lexeme());
+                if (defined != nullptr && defined->attr()->is_typedef) {
+                    if (defined->type()->is_complete()) {
+                        expect(')');
+                        return new IntConst(tok, defined->type()->size());
+                    } else {
+                        // type is not complete, it must be struct or union with a tag
+                        auto tag  = defined->type()->as_struct()->tag();
+                        auto type = _scope->find_tag(tag->get_lexeme());
+                        if (type == nullptr)
+                            error_at(tok, "sizeof an uncomplete type.");
+                        return new IntConst(tok, type->size());
+                    }
+                }
+            } else if (maybe_decl()) {
+                auto type = parse_type_name();
                 expect(')');
                 return new IntConst(tok, type->size());
             }
@@ -906,16 +971,12 @@ Expr *Parser::parse_unary() {
 //              ( type-name ) cast-expression
 Expr *Parser::parse_cast() {
     if (try_next('(')) {
-        // TODO: parse_type_name
-        auto name = peek();
-        auto type = _scope->find_tag(name->get_lexeme());
-        if (type) {
+        if (maybe_decl()) {
+            auto type = parse_type_name();
             expect(')');
-            auto expr = parse_cast();
-            return new Cast(type, expr);
+            return new Cast(type, parse_cast());
         } else {
-            while (!test('('))
-                unget();
+            unget();
         }
     }
     return parse_unary();
@@ -1104,7 +1165,6 @@ Expr *Parser::parse_assignment() {
             next();
             auto rhs = parse_assignment();
             auto a   = new Assignment(token, expr, rhs);
-            debug_token(peek());
             check_assignment(a);
             return a;
         }
@@ -1467,19 +1527,24 @@ FuncDef *Parser::parse_func_def(const HalfType *base) {
     return ret;
 }
 
-const Type *Parser::parse_type_name() { return nullptr; }
+const Type *Parser::parse_type_name() {
+    Attribute attr;
+    auto type = parse_declaration_specifiers(&attr);
+    auto ad   = parse_declarator(type);
+    if (ad->token() != nullptr)
+        error_at(ad->token(), "abstract declarator can not declared with an identifier.");
+    return ad->type();
+}
 void Parser::check_init_declarator(const InitDeclarator *id, Attribute *attr) {
     auto token = id->halftype()->token();
     auto obj   = _scope->find_var_in_local(token->get_lexeme());
     auto type  = id->halftype()->type();
     // first defined here
-    // debug("_scope: %p", _scope);
     if (obj == nullptr) {
         obj = new Object(token, type, attr);
         if (_cfd != nullptr && !attr->is_static)
             _cfd->append_local_variable(obj);
         _scope->push_var(token->get_lexeme(), obj);
-        // debug("scope: %s", _scope->obj_to_string().c_str());
         return;
     }
     // check if already defined
@@ -1527,12 +1592,6 @@ void Parser::check_identifier(const Token *token) {
     }
 }
 void Parser::check_assignment(Assignment *a) {
-    debug_token(a->rhs()->token());
-    debug_token(a->lhs()->token());
-    debug("lhs type is nullptr? %d", a->lhs()->type() == nullptr);
-    debug("lhs type %s", a->lhs()->type()->normalize().c_str());
-    debug("rhs type is nullptr? %d", a->rhs()->type() == nullptr);
-    debug("rhs type %s", a->rhs()->type()->normalize().c_str());
     if (a->lhs()->type()->is_compitable_with(a->rhs()->type())) {
         if (!a->lhs()->type()->equals_to(a->rhs()->type()))
             a->set_rhs(conv(a->lhs()->type(), a->rhs()));
@@ -1546,21 +1605,26 @@ bool Parser::maybe_decl() {
     auto tk = peek();
     if (tk->get_type() == TK_NAME) {
         auto name = tk->get_lexeme();
-        return _scope->resolve_name(name) && _scope->resolve_name(name)->type()->is_float();
+        auto obj  = _scope->find_var(name);
+        return obj != nullptr && obj->attr()->is_typedef;
     }
     return tk->is_decl_start();
 }
 
 void Parser::next() {
-    mqassert(!_lookups.empty(), "lookup tokens is empty.");
-    _consumed.push(_lookups.top());
-    _lookups.pop();
+    mqassert(_index < _tokens.size(), "lookup tokens is empty.");
+    // _consumed.push(_lookups.top());
+    // _lookups.pop();
+    _index++;
 }
 const Token *Parser::peek() {
-    if (_lookups.empty()) {
-        _lookups.push(_scanner->get_token());
-    }
-    return _lookups.top();
+    //    if (_lookups.empty()) {
+    //        _lookups.push(_scanner->get_token());
+    //    }
+    //    return _lookups.top();
+    if (_index == _tokens.size())
+        _tokens.emplace_back(_scanner->get_token());
+    return _tokens.at(_index);
 }
 
 bool Parser::test(int expected) { return peek()->get_type() == expected; }
@@ -1580,6 +1644,7 @@ bool Parser::try_next(int expected) {
 }
 
 void Parser::unget() {
-    _lookups.push(_consumed.top());
-    _consumed.pop();
+    _index--;
+    // _lookups.push(_consumed.top());
+    // _consumed.pop();
 }

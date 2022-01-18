@@ -53,10 +53,12 @@ class Parser {
     struct SwitchStatus {
         CaseDefaultList labels;
     } *_switch = nullptr;
-    std::stack<const Token *> _lookups;
-    std::stack<const Token *> _consumed;
+    // std::stack<const Token *> _lookups;
+    // std::stack<const Token *> _consumed;
+    std::vector<const Token *> _tokens;
+    unsigned _index = 0;
     void process_storage_class(Attribute *base);
-    const Type *parse_typedef(const Type *base);
+    void parse_typedef(const Type *base, Attribute*attr);
     Type *parse_struct_decl();
     Type *parse_union_decl();
     const Type *parse_struct_union_decl();
@@ -76,10 +78,11 @@ class Parser {
     const Type *parse_pointer(const Type *base);
     // declarator needs direct declarator
     const HalfType *parse_direct_declarator(const Type *);
+    void fix_type(Type *fake_type, const Type *fake_base, const Type *real_base);
     std::vector<const HalfType *> parse_parameters();
     const HalfType *parse_parameter();
     Expr *parse_array_dimen();
-    Type *parse_func_or_array_decl(const Type *base, const char *name);
+    const Type *parse_func_or_array_decl(const Type *base);
 
     Block *parse_declaration();
     Decl *parse_decl(type_counter_t, Declarator *);
@@ -152,6 +155,8 @@ class Parser {
     void expect(int expected);
     bool try_next(int expected);
     void unget();
+    unsigned int index() { return _index; }
+    void set_index(unsigned int index) { _index = index; }
 };
 
 #endif

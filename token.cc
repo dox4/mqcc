@@ -123,7 +123,7 @@ bool Token::is_unary_operator() const noexcept { return one_of<UNARY_OP()>(get_t
 
 bool Token::is_decl_start() const noexcept { return is_type_token(); }
 
-bool Token::is_comparator() const noexcept { return one_of<COMP()>(get_type());}
+bool Token::is_comparator() const noexcept { return one_of<COMP()>(get_type()); }
 
 int Token::find_keyword(string_view word) {
     for (size_t i = 0; i < _keywords.size(); i++) {
@@ -148,6 +148,8 @@ Token::Token(int tp, const SourcePosition *sp) : _type(tp), _sp(sp) {
         _lexeme = "<eof>";
     }
 }
+Token::Token(int tp, std::int64_t value, const char *literal, const SourcePosition *sp)
+    : _type(tp), _lexeme(literal), _value(value), _sp(sp) {}
 
 Token::~Token() {
     if (is_literal(_type)) {
@@ -155,4 +157,7 @@ Token::~Token() {
     }
 }
 
+const Token *Token::make_token(int tp, int ch, const char *literal, const SourcePosition *sp) {
+    return new Token(tp, ch, literal, sp);
+}
 const Token *Token::make_token(int tp, const SourcePosition *sp) { return new Token(tp, sp); }

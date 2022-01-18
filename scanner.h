@@ -33,9 +33,11 @@ class Scanner {
     const Token *get_number();
     int read_escape();
     const Token *get_string();
+    const Token *get_char();
     const Token *get_name_or_keyword();
     const Token *make_token(int tp);
     const Token *make_token(int tp, const char *literal);
+    const Token *make_token(int tp, int ch, const char *literal);
 };
 
 #endif

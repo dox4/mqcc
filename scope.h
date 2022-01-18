@@ -20,11 +20,11 @@ class Scope {
     explicit Scope() = default;
     explicit Scope(Scope *parent) : _parent(parent), _tags(), _vars() {}
 
-    Object *resolve_name(const std::string_view &);
-    Object *resolve_name_in_local(const std::string_view &);
-
-    const Type *find_typedef(std::string_view) const;
-    void push_typedef(std::string_view, Type *);
+//     Object *resolve_name(const std::string_view &);
+//     Object *resolve_name_in_local(const std::string_view &);
+// 
+//     const Type *find_typedef(std::string_view) const;
+//     void push_typedef(std::string_view, const Type *);
 
     const Type *find_tag_in_local(const std::string_view &) const;
     const Type *find_tag(const std::string_view &) const;
@@ -50,7 +50,7 @@ class Scope {
     // struts or unions
     std::unordered_map<std::string_view, Type *> _tags;
     // typedefs
-    std::unordered_map<std::string_view, Type *> _typedefs;
+    // std::unordered_map<std::string_view, const Type *> _typedefs;
     // global variables, local variables or functions
     std::map<std::string_view, Object *> _vars;
 };

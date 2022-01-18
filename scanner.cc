@@ -23,6 +23,9 @@ const Token *Scanner::make_token(int tp) { return Token::make_token(tp, _sp->cop
 const Token *Scanner::make_token(int tp, const char *literal) {
     return Token::make_token(tp, literal, _sp->copy());
 }
+const Token *Scanner::make_token(int tp, int ch, const char *literal) {
+    return Token::make_token(tp, ch, literal, _sp->copy());
+}
 
 void Scanner::next() { _sp->next(); }
 
@@ -164,6 +167,8 @@ const Token *Scanner::get_token() {
         return get_number();
     case '\"':
         return get_string();
+    case '\'':
+        return get_char();
     default: {
         auto tk = get_name_or_keyword();
         if (tk->is_ignored())
@@ -320,4 +325,21 @@ const Token *Scanner::get_string() {
     return make_token(TK_STRING, literal);
 }
 
+const Token *Scanner::get_char() {
+    const char *start = _sp->current();
+    set_mark();
+    expect('\'');
+    int ch;
+    if (test('\\'))
+        ch = read_escape();
+    else {
+        ch = peek();
+        next();
+    }
+    expect('\'');
+    const char *end = _sp->current();
+    const char *dup = strndup(start, end - start);
+    debug("char literal: %s", dup);
+    return make_token(TK_CHARACTER, ch, dup);
+}
 /// Scanner
