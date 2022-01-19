@@ -1,7 +1,9 @@
 #include "token.h"
 #include "error.h"
+#include "srcpos.h"
 #include <array>
 #include <cstring>
+#include <sstream>
 using namespace std;
 
 static constexpr auto _keyword_start = TK_ALIGNOF;
@@ -100,6 +102,13 @@ static inline constexpr bool eq(int x, int y) { return x == y; }
 
 template <int... N> static bool one_of(int x) { return (eq(N, x) || ...); }
 
+static const char *fake_name() {
+    static int index = 0;
+    stringstream ss;
+    ss << "$FAKEVAR" << index++;
+    return strdup(ss.str().c_str());
+}
+
 /// helper functions end
 
 static bool is_keyword(int tk) { return _keyword_start <= tk && tk < _keyword_end; }
@@ -149,6 +158,10 @@ Token::Token(int tp, const SourcePosition *sp) : _type(tp), _sp(sp) {
     } else {
         error_at(this, "unexpected single character token or keyword token: %d", tp);
     }
+}
+
+const Token *Token::fake_name_token(const SourcePosition *sp) {
+    return new Token(TK_NAME, fake_name(), sp);
 }
 
 Token::~Token() {

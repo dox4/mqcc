@@ -398,11 +398,8 @@ class Unary : public Expr {
 
 template <int Type> class TypedUnaryExpr : public Unary {
   public:
-    explicit TypedUnaryExpr(Expr *oprand) : Unary(oprand), _type(Type) {}
+    explicit TypedUnaryExpr(Expr *oprand) : Unary(oprand) {}
     virtual int unary_type() const noexcept { return Type; };
-
-  private:
-    int _type;
 };
 
 class Cast : public Expr {

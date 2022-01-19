@@ -1214,7 +1214,10 @@ Expr *Parser::parse_assignment() {
             auto token = peek();
             next();
             auto rhs = parse_assignment();
-            auto a   = new Assignment(token, expr, rhs);
+            if (token->get_type() != TK_ASSIGN) {
+                return complex_assignment(token, expr, rhs);
+            }
+            auto a = new Assignment(token, expr, rhs);
             check_assignment(a);
             return a;
         }
@@ -1237,6 +1240,71 @@ Expr *Parser::parse_assignment() {
         }
     }
     return expr;
+}
+
+Expr *Parser::complex_assignment(const Token *tok, Expr *dest, Expr *rhs) {
+    auto *fname = Token::fake_name_token(tok->get_position());
+    auto *ident = new Identifier(fname, _scope);
+    // first, create a local variable to store the address of lhs's result
+    auto *ref    = new TypedUnaryExpr<'&'>(dest);
+    auto *expr1 = new Assignment(tok, ident, ref);
+    // second, apply binary operation on the value and assign to the result
+    auto deref = new TypedUnaryExpr<'*'>(ident);
+    const Token *op;
+    Binary *bin;
+    switch (tok->get_type()) {
+    case TK_MUL_ASSIGN: // *=
+        op  = Token::make_token('*', tok->get_position());
+        bin = new Multi(op, deref, rhs);
+        break;
+    case TK_DIV_ASSIGN: // /=
+        op  = Token::make_token('/', tok->get_position());
+        bin = new Multi(op, deref, rhs);
+        break;
+    case TK_MOD_ASSIGN: // %=
+        op  = Token::make_token('%', tok->get_position());
+        bin = new Multi(op, deref, rhs);
+        break;
+    case TK_ADD_ASSIGN: // +=
+        op  = Token::make_token('+', tok->get_position());
+        bin = new Add(op, deref, rhs);
+        break;
+    case TK_MINUS_ASSIGN: // -=
+        op  = Token::make_token('-', tok->get_position());
+        bin = new Add(op, deref, rhs);
+        break;
+    case TK_LSHIFT_ASSIGN: // <<=
+        op  = Token::make_token(TK_LSHIFT, "<<", tok->get_position());
+        bin = new Shift(op, deref, rhs);
+        break;
+    case TK_RSHIFT_ASSIGN: // >>=
+        op  = Token::make_token(TK_RSHIFT, ">>", tok->get_position());
+        bin = new Shift(op, deref, rhs);
+        break;
+    case TK_BAND_ASSIGN: // &=
+        op  = Token::make_token('&', tok->get_position());
+        bin = new BitAnd(op, deref, rhs);
+        break;
+    case TK_XOR_ASSIGN: // ^=
+        op  = Token::make_token('^', tok->get_position());
+        bin = new BitXor(op, deref, rhs);
+        break;
+    case TK_BOR_ASSIGN: // |=
+        op  = Token::make_token('|', tok->get_position());
+        bin = new BitOr(op, deref, rhs);
+        break;
+    default:
+        error_at(tok, "not a valid assignment operator.");
+        bin = nullptr;
+    }
+    auto *expr2 = new Assignment(tok, deref, bin);
+
+    // save local variable
+    auto obj = new Object(fname, ref->type(), nullptr);
+    _cfd->append_local_variable(obj);
+    _scope->push_var(fname->get_lexeme(), obj);
+    // finally, make a comma expr
+    return new Comma(tok, expr1, expr2);
 }
 
 Expr *Parser::parse_comma() {

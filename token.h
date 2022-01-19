@@ -160,6 +160,8 @@ class Token {
     static const Token *make_token(int tp, const char *lexeme, const SourcePosition *sp, T v) {
         return new Token(tp, sp, lexeme, v);
     }
+    
+    static const Token* fake_name_token(const SourcePosition*);
     ~Token();
 
   private:

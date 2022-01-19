@@ -1264,7 +1264,6 @@ void Generator::visit_for(For *f) {
     visit(f->body());
     if (f->accumulator() != nullptr)
         visit(f->accumulator());
-    debug_token(f->cond()->token());
     emit("jmp", bl);
     emit_label(el);
 
@@ -1283,7 +1282,6 @@ void Generator::visit_return(Return *rs) {
 void Generator::visit_assignment(Assignment *assignment) {
     auto rhs = assignment->rhs();
     auto lhs = assignment->lhs();
-    debug_token(lhs->token());
     _lvgtr->visit(lhs);
     auto addr = _lvgtr->mut_obj();
     push_addr(addr);
@@ -1475,8 +1473,6 @@ void LValueGenerator::visit_identifier(Identifier *ident) {
     auto name = ident->get_value();
     auto obj  = _gtr->_current_scope->find_var(ident->get_value());
     auto sp   = ident->token()->get_position();
-    debug_token(ident->token());
-    debug("obj is null? %d", obj == nullptr);
     _gtr->emit("#", sp->get_file_name(), to_string(sp->get_line()));
     if (obj->is_global())
         _obj_addr.emplace(ObjAddr::base_addr(gvar_label(name), rip));

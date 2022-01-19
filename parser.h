@@ -58,7 +58,7 @@ class Parser {
     std::vector<const Token *> _tokens;
     unsigned _index = 0;
     void process_storage_class(Attribute *base);
-    void parse_typedef(const Type *base, Attribute*attr);
+    void parse_typedef(const Type *base, Attribute *attr);
     Type *parse_struct_decl();
     Type *parse_union_decl();
     const Type *parse_struct_union_decl();
@@ -111,6 +111,7 @@ class Parser {
 
     Expr *parse_conditional();
     Expr *parse_assignment();
+    Expr *complex_assignment(const Token *, Expr *, Expr *);
     Expr *parse_comma();
 
     // argument-expression-list:
