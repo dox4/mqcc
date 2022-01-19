@@ -12,6 +12,7 @@
 #include <iterator>
 #include <list>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -229,6 +230,7 @@ list<Member *> Parser::parse_member_decl(Attribute *attr, const Type *base) {
     expect(';');
     return ret;
 }
+
 const Type *Parser::parse_struct_union_decl() {
     // struct or union
     auto is_union = test(TK_UNION);
@@ -257,7 +259,7 @@ const Type *Parser::parse_struct_union_decl() {
         auto stype = _scope->find_mut_tag_in_local(tag->get_lexeme());
         if (stype->is_complete())
             error_at(tag, "redefined struct or union.");
-        if (stype->as_struct()->is_union() != is_union)
+        if (stype->as_struct()->is_union() != is_union || stype->is_enum())
             error_at(tag, "type conflicted with previous declaration.");
     }
     list<Member *> members;
@@ -279,6 +281,52 @@ const Type *Parser::parse_struct_union_decl() {
     else
         ret = new StructType(tag, members);
     ret->set_complete(true);
+    return ret;
+}
+const Type *Parser::parse_enum_decl() {
+    expect(TK_ENUM);
+    const Token *tag = nullptr;
+    if (test(TK_NAME)) {
+        tag = peek();
+        next();
+    }
+    EnumType *ret = new EnumType(tag, list<const Enumerator *>{});
+    if (tag != nullptr) {
+        auto etype = _scope->find_mut_tag_in_local(tag->get_lexeme());
+        if (etype != nullptr)
+            return etype;
+        _scope->push_tag(tag->get_lexeme(), ret);
+    }
+    if (!try_next('{')) {
+        if (tag == nullptr)
+            error_at(peek(), "unexpected token while parsing enum");
+        return _scope->find_mut_tag_in_local(tag->get_lexeme());
+    }
+    if (tag != nullptr) {
+        auto stype = _scope->find_mut_tag_in_local(tag->get_lexeme());
+        if (stype->is_complete())
+            error_at(tag, "redefined enum.");
+        if (!stype->is_enum())
+            error_at(tag, "type conflicted with previous declaration.");
+    }
+    int value = 0;
+    do {
+        if (test('}'))
+            break;
+        auto *name = parse_ident();
+        if (try_next('=')) {
+            auto *const_expr = process_const();
+            if (!const_expr->is_int_const())
+                error_at(const_expr->token(), "enum must be integer.");
+            value = const_expr->token()->value<std::uint64_t>();
+        }
+        auto *obj = new Object(name->token(), ret, nullptr);
+        _scope->push_var(name->get_value(), obj);
+        ret->append_enumerator(new Enumerator(name->token(), value++));
+    } while (try_next(','));
+    expect('}');
+    if (ret->enumrators().empty())
+        error_at(peek(), "declare an empty enum.");
     return ret;
 }
 
@@ -530,6 +578,8 @@ const Type *Parser::parse_declaration_specifiers(Attribute *attr) {
             process_storage_class(attr);
         else if (test(TK_UNION) || test(TK_STRUCT))
             return parse_struct_union_decl();
+        else if (tk->get_type() == TK_ENUM)
+            return parse_enum_decl();
         else if (tk->get_type() == TK_NAME) {
             // process user-define types
             auto name = tk->get_lexeme();
@@ -745,7 +795,7 @@ Block *Parser::parse_declaration() {
         parse_typedef(type, attr);
         return nullptr;
     }
-    if (try_next(';') && type->is_struct())
+    if (try_next(';') && (type->is_struct() || type->is_enum()))
         return nullptr;
     return parse_init_declarators(type, attr);
 }
@@ -754,17 +804,17 @@ Decl *Parser::parse_decl(type_counter_t spec, Declarator *declarator) { return n
 
 Expr *Parser::process_const() {
     auto tk = peek();
-    if (tk->get_type() == TK_FNUMBER) {
+    if (tk->get_type() == TK_FLOAT_LITERAL || tk->get_type() == TK_DOUBLE_LITERAL) {
         next();
         return new FloatConst(tk);
     }
-    if (tk->get_type() == TK_INUMBER) {
+    if (tk->get_type() == TK_INTEGER_LITERAL) {
         next();
         return new IntConst(tk);
     }
     if (tk->get_type() == TK_CHARACTER) {
         next();
-        return new IntConst(tk, tk->value(), &BuiltinType::Char);
+        return new IntConst(tk, char(tk->value<uint64_t>()));
     }
     unreachable();
     return nullptr;
@@ -781,8 +831,8 @@ Expr *Parser::process_const() {
 Expr *Parser::parse_primary() {
     auto tk = peek();
     switch (tk->get_type()) {
-    case TK_INUMBER:
-    case TK_FNUMBER:
+    case TK_INTEGER_LITERAL:
+    case TK_FLOAT_LITERAL:
     case TK_CHARACTER:
         return process_const();
     case TK_NAME:
@@ -1329,10 +1379,11 @@ Stmt *Parser::parse_do_while() {
 // "for" "(" declaration         expression(opt) ";" expression(opt) ")" statement
 Stmt *Parser::parse_for() {
     expect(TK_FOR);
+    _scope = _scope->drill_down();
     expect('(');
     // parse init part
     Stmt *init;
-    if (try_next(';')) {
+    if (test(';')) {
         init = Empty::instance();
     } else if (maybe_decl()) {
         auto decl = parse_declaration();
@@ -1342,29 +1393,31 @@ Stmt *Parser::parse_for() {
             init = decl;
     } else {
         init = new ExprStmt(parse_expr());
-        expect(';');
     }
+    expect(';');
     // parse cond part;
     Expr *cond;
-    if (try_next(';')) {
+    if (test(';')) {
         cond = nullptr;
     } else {
         cond = parse_expr();
         if (!cond->type()->is_integer()) {
             cond = conv(&BuiltinType::Int, cond);
         }
-        expect(';');
     }
+    expect(';');
     // accumulator part
     Expr *accumulator;
-    if (try_next(')')) {
+    if (test(')')) {
         accumulator = nullptr;
     } else {
         accumulator = parse_expr();
-        expect(')');
     }
-    auto body = parse_stmt();
-    return new For(init, cond, accumulator, body);
+    expect(')');
+    auto body   = parse_stmt();
+    auto newfor = new For(init, cond, accumulator, body, _scope);
+    _scope      = _scope->float_up();
+    return newfor;
 }
 
 // jump-statement:
@@ -1606,7 +1659,7 @@ bool Parser::maybe_decl() {
     if (tk->get_type() == TK_NAME) {
         auto name = tk->get_lexeme();
         auto obj  = _scope->find_var(name);
-        return obj != nullptr && obj->attr()->is_typedef;
+        return obj != nullptr && obj->attr() != nullptr && obj->attr()->is_typedef;
     }
     return tk->is_decl_start();
 }

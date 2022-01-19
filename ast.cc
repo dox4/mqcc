@@ -5,29 +5,30 @@
 #include "type.h"
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 using namespace std;
 
-static const Type *infer_type_by_suffix(const char *end) {
-    if (*end == '\0') {
-        return &BuiltinType::Int;
-    }
-    size_t len;
-    if ((len = strlen(end)) > 3)
-        return nullptr;
-    char *dup = strndup(end, len);
-    for (size_t idx = 0; dup[idx]; idx++)
-        dup[idx] = tolower(dup[idx]);
-
-    if (strcmp(dup, "ull") || strcmp(dup, "ul"))
-        return &BuiltinType::ULong;
-    if (strcmp(dup, "ll") || strcmp(dup, "l"))
-        return &BuiltinType::Long;
-    if (strcmp(dup, "u"))
-        return &BuiltinType::UInt;
-    return nullptr;
-}
+// static const Type *infer_type_by_suffix(const char *end) {
+//     if (*end == '\0') {
+//         return &BuiltinType::Int;
+//     }
+//     size_t len;
+//     if ((len = strlen(end)) > 3)
+//         return nullptr;
+//     char *dup = strndup(end, len);
+//     for (size_t idx = 0; dup[idx]; idx++)
+//         dup[idx] = tolower(dup[idx]);
+// 
+//     if (strcmp(dup, "ull") || strcmp(dup, "ul"))
+//         return &BuiltinType::ULong;
+//     if (strcmp(dup, "ll") || strcmp(dup, "l"))
+//         return &BuiltinType::Long;
+//     if (strcmp(dup, "u"))
+//         return &BuiltinType::UInt;
+//     return nullptr;
+// }
 
 /// AstNode
 
@@ -86,14 +87,13 @@ void FloatConst::accept(Visitor *v) { v->visit_float_const(this); }
 /// IntConst
 
 IntConst::IntConst(const Token *token) : Const(EXPR_INT), _token(token) {
-    char *end;
-    // got the value and assign
-    auto nval = std::strtoull(_token->get_lexeme(), &end, 10);
-    if (errno == ERANGE)
-        warn_at(_token, "integer number overflow.");
-    _value = nval;
-    if ((_type = infer_type_by_suffix(end)) == nullptr)
-        error_at(token, "invalid postfix for integer constant.");
+    _value = _token->value<uint64_t>();
+    if (_value > INT64_MAX || _value > INT32_MAX)
+        warn_at(_token, "integer is so large that represent as unsigned.");
+    _type = _value > INT64_MAX    ? &BuiltinType::ULong
+            : _value > UINT32_MAX ? &BuiltinType::Long
+            : _value > INT32_MAX  ? &BuiltinType::UInt
+                                  : &BuiltinType::Int;
 }
 void IntConst::accept(Visitor *v) { v->visit_int_const(this); }
 
@@ -101,8 +101,6 @@ void IntConst::accept(Visitor *v) { v->visit_int_const(this); }
 /// Identifier
 void Identifier::accept(Visitor *v) { v->visit_identifier(this); }
 const Type *Identifier::type() const noexcept {
-    // debug("scope at(%p): %s", _scope, _scope->obj_to_string().c_str());
-    // debug("find variable %s: %p", _token->get_lexeme(), _scope->find_var(_token->get_lexeme()));
     if (_scope->find_var(_token->get_lexeme()) == nullptr) {
         warn_at(_token, "use undeclared name, assuming as `int`.");
         return &BuiltinType::Int;
@@ -134,9 +132,9 @@ void MemberAccess::accept(Visitor *v) { v->visit_member_access(this); }
 
 /// FuncCallExpr end
 void StringLiteral::accept(Visitor *v) { v->visit_string_literal(this); }
-const Type *StringLiteral::type() const noexcept {
-    return new ArrayType(&BuiltinType::Char, strlen(_token->get_lexeme()) + 1);
-}
+// const Type *StringLiteral::type() const noexcept {
+//     return new ArrayType(&BuiltinType::Char, strlen(_token->get_lexeme()) + 1);
+// }
 void StmtExpr::accept(Visitor *v) { v->visit_block(_block); }
 const Type *StmtExpr::type() const noexcept {
     return (*_block->items().rbegin())->as_expr_statement()->expr()->type();

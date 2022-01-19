@@ -62,6 +62,7 @@ class Parser {
     Type *parse_struct_decl();
     Type *parse_union_decl();
     const Type *parse_struct_union_decl();
+    const Type *parse_enum_decl();
     std::list<Member *> parse_member_decl(Attribute *attr, const Type *base);
     type_counter_t process_builtin(type_counter_t);
     // function definition and declaration both start with

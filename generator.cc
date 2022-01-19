@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -226,7 +227,6 @@ static const string iinst(const string &ins, int width) {
     case 8:
         return ins + "q";
     }
-    debug("inst: %s, width: %d", ins.c_str(), width);
     unreachable();
     return "";
 }
@@ -647,6 +647,7 @@ void Generator::emit_promot_int(const Type *from) {
     case TY_LONG:
     case TY_PTR:
     case TY_ARRAY:
+    case TY_ENUM:
         return;
     default:
         error("type %s could not be converted to integer.", from->normalize().c_str());
@@ -788,7 +789,11 @@ void Generator::visit_func_def(FuncDef *fd) {
     // emit function info
     emit(".text");
     auto name = fd->func_name();
-    emit(".globl", name);
+    auto fobj = _current_scope->find_var(name);
+    if (fobj->attr()->is_static)
+        emit(".local", name);
+    else
+        emit(".globl", name);
     emit(".type", name, "@function");
     emit_label(name);
 
@@ -1244,6 +1249,10 @@ void Generator::visit_for(For *f) {
     // assign new temporary labels
     restore_loop(&ib, &bt);
 
+    // backup scope
+    auto *bak_scope = _current_scope;
+    _current_scope  = f->scope();
+
     // emit code
     visit(f->init());
     emit_label(bl);
@@ -1255,11 +1264,13 @@ void Generator::visit_for(For *f) {
     visit(f->body());
     if (f->accumulator() != nullptr)
         visit(f->accumulator());
+    debug_token(f->cond()->token());
     emit("jmp", bl);
     emit_label(el);
 
     // restore loop status
     restore_loop(pib, pbt);
+    _current_scope = bak_scope;
 }
 void Generator::visit_goto(Goto *g) { emit("jmp", userlabel(g->label())); }
 void Generator::visit_continue(Continue *c) { emit("jmp", _cont_to->label); }
@@ -1272,6 +1283,7 @@ void Generator::visit_return(Return *rs) {
 void Generator::visit_assignment(Assignment *assignment) {
     auto rhs = assignment->rhs();
     auto lhs = assignment->lhs();
+    debug_token(lhs->token());
     _lvgtr->visit(lhs);
     auto addr = _lvgtr->mut_obj();
     push_addr(addr);
@@ -1318,6 +1330,17 @@ void Generator::visit_init_declarator(InitDeclarator *id) {
 void Generator::visit_initializer(Initializer *init) { visit(init->assignment()); }
 
 void Generator::visit_identifier(Identifier *ident) {
+    if (ident->type()->is_enum()) {
+        auto &enums = ident->type()->as_enum()->enumrators();
+        auto *name  = ident->get_value();
+        for (auto &en : enums) {
+            if (strcmp(name, en->token()->get_lexeme()) == 0) {
+                emit("movq", en->value(), rax);
+                return;
+            }
+        }
+        error_at(ident->token(), "enumerator not found.");
+    }
     emit_loc(ident->token()->get_position()->get_line());
     _lvgtr->visit(ident);
     auto obj = _current_scope->find_var(ident->get_value());
@@ -1452,6 +1475,8 @@ void LValueGenerator::visit_identifier(Identifier *ident) {
     auto name = ident->get_value();
     auto obj  = _gtr->_current_scope->find_var(ident->get_value());
     auto sp   = ident->token()->get_position();
+    debug_token(ident->token());
+    debug("obj is null? %d", obj == nullptr);
     _gtr->emit("#", sp->get_file_name(), to_string(sp->get_line()));
     if (obj->is_global())
         _obj_addr.emplace(ObjAddr::base_addr(gvar_label(name), rip));

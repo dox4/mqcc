@@ -7,6 +7,7 @@
 #include "type.h"
 #include "typedefs.h"
 #include <cstdint>
+#include <cstring>
 #include <list>
 #include <string>
 #include <string_view>
@@ -319,14 +320,10 @@ class Const : public PrimaryExpr {
 };
 class FloatConst : public Const {
   public:
-    //     explicit FloatConst(double val, bool isfloat)
-    //         : PrimaryExpr(EXPR_FLOAT), _value(val),
-    //           _type(isfloat ? &BuiltinType::Float : &BuiltinType::Double) {}
     explicit FloatConst(const Token *token) : Const(EXPR_FLOAT), _token(token) {
-        char *end;
-        double dval = std::strtod(token->get_lexeme(), &end);
-        _value      = dval;
-        _type       = *end == 'f' ? &BuiltinType::Float : &BuiltinType::Double;
+        bool isfloat = _token->get_type() == TK_FLOAT_LITERAL;
+        _type        = isfloat ? &BuiltinType::Float : &BuiltinType::Double;
+        _value       = isfloat ? _token->value<float>() : _token->value<double>();
     }
     const double value() const noexcept { return _value; }
     virtual const Type *type() const noexcept { return _type; }
@@ -345,8 +342,6 @@ class IntConst : public Const {
         : Const(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::Int) {}
     explicit IntConst(const Token *token, std::uint64_t ival)
         : Const(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::ULong) {}
-    explicit IntConst(const Token *token, std::uint64_t ival, const Type *type)
-        : Const(EXPR_INT), _value(ival), _token(token), _type(type) {}
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept { return _type; }
     virtual bool is_int_const() const noexcept { return true; }
@@ -362,14 +357,17 @@ class IntConst : public Const {
 
 class StringLiteral : public Const {
   public:
-    explicit StringLiteral(const Token *literal) : Const(EXPR_STR), _token(literal){};
-    const char *get_value() const noexcept { return _token->get_lexeme(); }
+    explicit StringLiteral(const Token *tok)
+        : Const(EXPR_STR), _token(tok),
+          _type(new ArrayType(&BuiltinType::Char, strlen(_token->value<const char *>()) + 1)){};
+    const char *get_value() const noexcept { return _token->value<const char *>(); }
     virtual void accept(Visitor *);
-    virtual const Type *type() const noexcept;
+    virtual const Type *type() const noexcept { return _type; }
     virtual const Token *token() const noexcept { return _token; }
 
   private:
     const Token *_token;
+    const Type *_type;
 };
 class Block;
 class StmtExpr : public PrimaryExpr {
@@ -573,15 +571,17 @@ class DoWhile : public While {
 
 class For : public While {
   public:
-    explicit For(Stmt *init, Expr *cond, Expr *acc, Stmt *body)
-        : While(cond, body), _init(init), _accumulator(acc) {}
+    explicit For(Stmt *init, Expr *cond, Expr *acc, Stmt *body, const Scope *scope)
+        : While(cond, body), _init(init), _accumulator(acc), _scope(scope) {}
     Stmt *init() const noexcept { return _init; }
     Expr *accumulator() const noexcept { return _accumulator; }
+    const Scope *scope() const noexcept { return _scope; }
     virtual void accept(Visitor *v);
 
   private:
     Stmt *_init;
     Expr *_accumulator;
+    const Scope *_scope;
 };
 
 class Jump : public Stmt {};

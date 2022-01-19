@@ -40,7 +40,7 @@ inline void error_unexpected(char expected, char actual) {
 
 #define debug_token(tk)                                                                            \
     do {                                                                                           \
-        debug("from macro `debug_token`:");                                                        \
+        debug("%s:", __func__);                                                        \
         if (tk == nullptr)                                                                         \
             debug("got nullptr.");                                                                 \
         else                                                                                       \

@@ -35,6 +35,7 @@ enum TypeKind {
 
 // calculate align
 int align_to(int offset, int align);
+class EnumType;
 class StructType;
 class FuncType;
 class Derefed;
@@ -66,6 +67,7 @@ class Type {
     }
     virtual bool equals_to(const Type *other) const { return this == other; }
     virtual bool is_compitable_with(const Type *other) const { return this == other; }
+    virtual bool is_complete() const noexcept { return true; }
     virtual const Type *point_to() const {
         unimplement();
         return nullptr;
@@ -81,7 +83,11 @@ class Type {
         return -1;
     };
     virtual bool is_struct() const noexcept { return false; }
-    virtual bool is_complete() const noexcept { return true; }
+    virtual bool is_enum() const noexcept { return false; }
+    virtual const EnumType *as_enum() const noexcept {
+        unimplement();
+        return nullptr;
+    }
     virtual Derefed *as_derefed() noexcept {
         unimplement();
         return nullptr;
@@ -293,6 +299,7 @@ class UnionType : public StructType {
 
   private:
 };
+
 class ArrayType : public Derefed {
   public:
     explicit ArrayType(const Type *base, size_t size)
@@ -310,6 +317,7 @@ class ArrayType : public Derefed {
   private:
     size_t _cap;
 };
+
 class FuncType : public Type {
   public:
     explicit FuncType(const Type *ret, std::string_view name)
@@ -327,6 +335,38 @@ class FuncType : public Type {
   private:
     const Type *_ret;
     std::vector<const HalfType *> _params;
+};
+
+class Enumerator {
+  public:
+    explicit Enumerator(const Token *token, int value) : _token(token), _value(value) {}
+    const Token *token() const noexcept { return _token; }
+    int value() const noexcept { return _value; }
+
+  private:
+    const Token *_token;
+    const int _value;
+};
+
+class EnumType : public Type {
+  public:
+    explicit EnumType(const Token *tag, std::list<const Enumerator *> enumerators);
+    const std::list<const Enumerator *> enumrators() const noexcept { return _enumerators; }
+    void append_enumerator(const Enumerator *enumerator) { _enumerators.emplace_back(enumerator); }
+
+    virtual const std::string normalize() const;
+    virtual bool is_complete() const noexcept { return !_enumerators.empty(); }
+    virtual bool is_enum() const noexcept { return true; }
+    virtual bool is_integer() const noexcept { return true; }
+    virtual bool is_scalar() const noexcept { return true; }
+    virtual bool is_arithmetic() const noexcept { return true; }
+
+    virtual const int align() const { return 4; };
+    virtual const EnumType *as_enum() const noexcept { return this; }
+
+  private:
+    const Token *_token;
+    std::list<const Enumerator *> _enumerators;
 };
 
 // usual arithmetic conversions

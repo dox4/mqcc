@@ -4,7 +4,9 @@
 #include "srcpos.h"
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <string_view>
+#include <variant>
 
 enum TokenType {
     TK_NOT     = '!',  // !
@@ -112,11 +114,12 @@ enum TokenType {
     TK__STATIC_ASSERT, // _Static_assert
     TK__THREAD_LOCAL,  // _Thread_local
 
-    TK_STRING = 300, // string literal
-    TK_INUMBER,      // integer number
-    TK_CHARACTER,    // char literal
-    TK_FNUMBER,      // float number
-    TK_NAME,         // identifier
+    TK_STRING = 300,    // string literal
+    TK_INTEGER_LITERAL, // integer number
+    TK_CHARACTER,       // char literal
+    TK_FLOAT_LITERAL,   // float number
+    TK_DOUBLE_LITERAL,  // double number
+    TK_NAME,            // identifier
 
     TK_EOF = 404, // end of file
 };
@@ -124,13 +127,17 @@ enum TokenType {
 class Token {
   public:
     int get_type() const noexcept { return _type; }
-
+    // single character token and keywords
     explicit Token(int tp, const SourcePosition *);
+    // multi characters token
     explicit Token(int tp, const char *literal, const SourcePosition *);
-    explicit Token(int tp, std::int64_t value, const char *literal, const SourcePosition *);
+    // token with lexer value
+    template <typename T>
+    explicit Token(int tp, const SourcePosition *sp, const char *literal, T v)
+        : _type(tp), _lexeme(literal), _sp(sp), _value(v) {}
 
     const char *get_lexeme() const noexcept { return _lexeme; }
-    std::int64_t value() const noexcept { return _value; }
+    template <typename T> T value() const noexcept { return std::get<T>(_value); }
     const SourcePosition *get_position() const noexcept { return _sp; }
     bool is_ignored() const noexcept;
     bool is_type_token() const noexcept;
@@ -146,18 +153,20 @@ class Token {
 
     static const Token *make_token(int tp, const SourcePosition *sp);
 
-    static const Token *make_token(int tp, int ch, const char *literal, const SourcePosition *sp);
-
-    static const Token *make_token(int tp, const char *literal, const SourcePosition *sp) {
-        return new Token(tp, literal, sp);
+    static const Token *make_token(int tp, const char *lexeme, const SourcePosition *sp) {
+        return new Token(tp, lexeme, sp);
+    }
+    template <typename T>
+    static const Token *make_token(int tp, const char *lexeme, const SourcePosition *sp, T v) {
+        return new Token(tp, sp, lexeme, v);
     }
     ~Token();
 
   private:
     int _type;
     const char *_lexeme;
-    std::int64_t _value = 0;
     const SourcePosition *_sp;
+    std::variant<std::uint64_t, double, float, const char *> _value;
 };
 
 #endif

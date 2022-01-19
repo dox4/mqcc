@@ -25,7 +25,6 @@ const BuiltinType BuiltinType::LDouble = BuiltinType(TY_LDOUBLE, "long double", 
 const Type *uac(const Type *l, const Type *r) {
     if (!l->is_arithmetic() || !r->is_arithmetic())
         error("usual arithmetic conversions could only apply on arithmetic types");
-    // debug("left type: %s, right type: %s", l->normalize().c_str(), r->normalize().c_str());
     // the same
     if (l->equals_to(r))
         return l;
@@ -124,6 +123,21 @@ bool FuncType::equals_to(const Type *other) const {
     return true;
 }
 
+EnumType::EnumType(const Token *tag, std::list<const Enumerator *> enumerators)
+    : Type(TY_ENUM, 4, tag == nullptr ? "" : tag->get_lexeme()), _enumerators(enumerators) {}
+
+const std::string EnumType::normalize() const {
+    stringstream ss;
+    ss << "enum"
+       << " ";
+    if (_token != nullptr)
+        ss << _token->get_lexeme();
+    ss << "{ ";
+    for (auto &en : _enumerators)
+        ss << en->token()->get_lexeme() << ": " << en->value() << " ";
+    ss << "}";
+    return ss.str();
+}
 int align_to(int offset, int align) {
     return offset % align == 0 ? offset : ((offset / align) + 1) * align;
 }

@@ -3,7 +3,9 @@
 #include "parser.h"
 #include "token.h"
 
+#include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -15,16 +17,15 @@ using namespace std;
 
 /// Scanner
 
-Scanner::Scanner(const char *file_name) { _sp = new SourcePosition(file_name); }
-Scanner::Scanner(const char *file_name, std::string src) {
+Scanner::Scanner(const char *file_name, const char *src) {
     _sp = new SourcePosition(file_name, src);
 }
-const Token *Scanner::make_token(int tp) { return Token::make_token(tp, _sp->copy()); }
-const Token *Scanner::make_token(int tp, const char *literal) {
-    return Token::make_token(tp, literal, _sp->copy());
+const Token *Scanner::make_token(int tp) { return Token::make_token(tp, _token_start); }
+const Token *Scanner::make_token(int tp, const char *lexeme) {
+    return Token::make_token(tp, lexeme, _token_start);
 }
-const Token *Scanner::make_token(int tp, int ch, const char *literal) {
-    return Token::make_token(tp, ch, literal, _sp->copy());
+template <typename T> const Token *Scanner::make_token(int tp, const char *literal, T v) {
+    return Token::make_token(tp, literal, _token_start, v);
 }
 
 void Scanner::next() { _sp->next(); }
@@ -34,12 +35,12 @@ bool Scanner::try_next(int ch) { return _sp->try_next(ch); }
 int Scanner::peek() { return _sp->peek(); }
 void Scanner::expect(int ch) {
     if (peek() != ch) {
-        error_unexpected(static_cast<char>(ch), static_cast<char>(peek()));
+        error_at(make_token(peek()), "expect `%c` but got `%c`", ch, peek());
     }
     next();
 }
 
-bool Scanner::test(int ch) { return (peek() != ch); }
+bool Scanner::test(int ch) { return (peek() == ch); }
 
 void Scanner::advance(int step) {}
 
@@ -58,8 +59,19 @@ void Scanner::skip_block_comment() {
         next();
 }
 
+void Scanner::set_token_start() { _token_start = _sp->copy(); }
+const char *Scanner::dup_lexeme() {
+    auto *start = _token_start->current();
+    auto *end   = _sp->current();
+    auto size   = end - start;
+    auto *lexeme = strndup(start, size + 1);
+    lexeme[size] = '\0';
+    return lexeme;
+}
+
 const Token *Scanner::get_token() {
     skip_spaces();
+    set_token_start();
     int ch = peek();
     switch (ch) {
     case '\0':
@@ -179,7 +191,6 @@ const Token *Scanner::get_token() {
 }
 
 const Token *Scanner::get_number() {
-    auto start = _sp->current();
     while (isdigit(peek()))
         next();
 
@@ -187,25 +198,18 @@ const Token *Scanner::get_number() {
     if (try_next('.')) {
         while (isdigit(peek()))
             next();
-        try_next('f');
-        auto end      = _sp->current();
-        auto size     = end - start;
-        char *literal = new char[size + 1];
-        strncpy(literal, start, size);
-        literal[size] = '\0';
-        return make_token(TK_FNUMBER, literal);
+        bool isfloat       = try_next('f');
+        const char *lexeme = dup_lexeme();
+        return isfloat ? make_token(TK_FLOAT_LITERAL, lexeme, strtof(lexeme, nullptr))
+                       : make_token(TK_DOUBLE_LITERAL, lexeme, strtod(lexeme, nullptr));
     }
     // integer number postfix
     try_next('u') || try_next('U');
     try_next('l') || try_next('L');
     try_next('l') || try_next('L');
-
-    auto end      = _sp->current();
-    auto size     = end - start;
-    char *literal = new char[size + 1];
-    strncpy(literal, start, size);
-    literal[size] = '\0';
-    return make_token(TK_INUMBER, literal);
+    auto *lexeme = dup_lexeme();
+    uint64_t val = strtoull(lexeme, nullptr, 10);
+    return make_token(TK_INTEGER_LITERAL, lexeme, val);
 }
 
 const Token *Scanner::get_name_or_keyword() {
@@ -320,14 +324,13 @@ const Token *Scanner::get_string() {
         }
     }
     expect('\"');
-    char *literal = new char[buffer.size() + 1];
-    strcpy(literal, buffer.c_str());
-    return make_token(TK_STRING, literal);
+    const char *strval = strndup(buffer.c_str(), buffer.size());
+    const char *lexeme = dup_lexeme();
+    return make_token(TK_STRING, lexeme, strval);
 }
 
 const Token *Scanner::get_char() {
     const char *start = _sp->current();
-    set_mark();
     expect('\'');
     int ch;
     if (test('\\'))
@@ -339,7 +342,6 @@ const Token *Scanner::get_char() {
     expect('\'');
     const char *end = _sp->current();
     const char *dup = strndup(start, end - start);
-    debug("char literal: %s", dup);
-    return make_token(TK_CHARACTER, ch, dup);
+    return make_token(TK_CHARACTER, dup, uint64_t(ch));
 }
 /// Scanner

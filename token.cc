@@ -146,10 +146,10 @@ Token::Token(int tp, const SourcePosition *sp) : _type(tp), _sp(sp) {
         _lexeme = _keywords[tp - _keyword_start];
     } else if (tp == TK_EOF) {
         _lexeme = "<eof>";
+    } else {
+        error_at(this, "unexpected single character token or keyword token: %d", tp);
     }
 }
-Token::Token(int tp, std::int64_t value, const char *literal, const SourcePosition *sp)
-    : _type(tp), _lexeme(literal), _value(value), _sp(sp) {}
 
 Token::~Token() {
     if (is_literal(_type)) {
@@ -157,7 +157,4 @@ Token::~Token() {
     }
 }
 
-const Token *Token::make_token(int tp, int ch, const char *literal, const SourcePosition *sp) {
-    return new Token(tp, ch, literal, sp);
-}
 const Token *Token::make_token(int tp, const SourcePosition *sp) { return new Token(tp, sp); }

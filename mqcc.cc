@@ -38,6 +38,11 @@ string read_file(const char *file_name) {
     return ret;
 }
 
+const char* read_file_to_raw(const char*file_name) {
+    auto src = read_file(file_name);
+    return strdup(src.c_str());
+}
+
 struct CmdOpt {
     const char *input_file  = nullptr;
     const char *output_file = nullptr;
@@ -97,7 +102,7 @@ int main(int argc, char **argv) {
 
     auto opt = parse_opt(argc, argv);
 
-    auto src = read_file(opt.input_file);
+    auto src = read_file_to_raw(opt.input_file);
 
     Scanner scanner(opt.input_file, src);
     Parser parser(&scanner);
@@ -106,7 +111,6 @@ int main(int argc, char **argv) {
     g.gen();
     auto code                  = g.code();
     write_asm(code, opt.output_file);
-    // set_mark();
     // run_gcc(opt.output_file, opt.output_file);
 
     return 0;
