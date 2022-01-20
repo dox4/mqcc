@@ -20,7 +20,7 @@ using namespace std;
 //     char *dup = strndup(end, len);
 //     for (size_t idx = 0; dup[idx]; idx++)
 //         dup[idx] = tolower(dup[idx]);
-// 
+//
 //     if (strcmp(dup, "ull") || strcmp(dup, "ul"))
 //         return &BuiltinType::ULong;
 //     if (strcmp(dup, "ll") || strcmp(dup, "l"))
@@ -145,12 +145,16 @@ void Conv::accept(Visitor *v) { v->visit_conv(this); }
 void Cast::accept(Visitor *v) { v->visit_cast(this); }
 void Unary::accept(Visitor *v) { v->visit_unary(this); }
 const Type *Unary::type() const noexcept {
+    static const PointerType *_p = nullptr;
     if (unary_type() == '*') {
-        mqassert(_oprand->type()->is_derefed(),
-                 "unary '*' could only apply on pointer or array types.");
         return _oprand->type()->derefed();
     }
-    return unary_type() == '&' ? new PointerType(_oprand->type()) : _oprand->type();
+    if (unary_type() == '&') {
+        if (_p == nullptr)
+            _p = new PointerType(_oprand->type());
+        return _p;
+    }
+    return unary_type() == '!' ? &BuiltinType::Int : _oprand->type();
 }
 const Type *MemberAccess::type() const noexcept {
     return (token()->get_type() == TK_ARROW)

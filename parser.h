@@ -111,7 +111,6 @@ class Parser {
 
     Expr *parse_conditional();
     Expr *parse_assignment();
-    Expr *complex_assignment(const Token *, Expr *, Expr *);
     Expr *parse_comma();
 
     // argument-expression-list:
@@ -140,6 +139,11 @@ class Parser {
 
     // parse type name
     const Type *parse_type_name();
+
+    // helper functions
+    Expr *complex_assignment(const Token *, Expr *, Expr *);
+    Expr *make_post(const Token*, Expr*);
+    void create_local_variable(const Token*, const Type*);
 
     // check name
     void check_init_declarator(const InitDeclarator *, Attribute *);

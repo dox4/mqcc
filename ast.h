@@ -320,6 +320,8 @@ class Const : public PrimaryExpr {
 };
 class FloatConst : public Const {
   public:
+    explicit FloatConst(const Token *token, double val)
+        : Const(EXPR_FLOAT), _value(val), _token(token), _type(&BuiltinType::Double) {}
     explicit FloatConst(const Token *token) : Const(EXPR_FLOAT), _token(token) {
         bool isfloat = _token->get_type() == TK_FLOAT_LITERAL;
         _type        = isfloat ? &BuiltinType::Float : &BuiltinType::Double;
@@ -584,12 +586,13 @@ class For : public While {
 class Jump : public Stmt {};
 class Goto : public Jump {
   public:
-    explicit Goto(const char *label) : _label(label) {}
-    const char *label() const noexcept { return _label; }
+    explicit Goto(const Token *tok, const std::string label) : _token(tok), _label(label) {}
+    const std::string &label() const noexcept { return _label; }
     virtual void accept(Visitor *);
 
   private:
-    const char *_label;
+    const Token *_token;
+    const std::string _label;
 };
 class Continue : public Jump {
   public:

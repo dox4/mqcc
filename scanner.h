@@ -15,7 +15,7 @@ class SourcePosition;
 class Scanner {
   public:
     // explicit Scanner(const char *file_name);
-    explicit Scanner(const char *file_name, const char* src);
+    explicit Scanner(const char *file_name, const char *src);
     const Token *get_token();
 
   private:
@@ -32,16 +32,16 @@ class Scanner {
     void skip_line_comment();
     void skip_block_comment();
     void set_token_start();
-    const char* dup_lexeme();
+    const char *dup_lexeme();
     const Token *get_number();
+    const Token *create_int_token(int);
     int read_escape();
     const Token *get_string();
     const Token *get_char();
     const Token *get_name_or_keyword();
     const Token *make_token(int tp);
     const Token *make_token(int tp, const char *literal);
-    template<typename T>
-    const Token *make_token(int tp, const char *literal, T v);
+    template <typename T> const Token *make_token(int tp, const char *literal, T v);
 };
 
 #endif

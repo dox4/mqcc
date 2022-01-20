@@ -141,11 +141,6 @@ static LabelMaker iter_end_label   = LabelMaker("IE");
 static LabelMaker test_label       = LabelMaker("T");
 static LabelMaker switch_end_label = LabelMaker("SE");
 
-static const string userlabel(const string label) {
-    // self defined
-    return ".LSD" + label + "0";
-}
-
 static const string gvar_label(const string name) { return "GVAR_" + name; }
 /// static variables end
 
@@ -613,6 +608,8 @@ void Generator::emit_text() {}
 void Generator::emit_cvt(const Type *from, const Type *to) {
     if (to->is_float()) {
         emit_cvt_to_float(from, to);
+    } else if (to->is_pointer()) {
+
     } else {
         emit_cvt_to_int(from, to);
     }
@@ -650,7 +647,7 @@ void Generator::emit_promot_int(const Type *from) {
     case TY_ENUM:
         return;
     default:
-        error("type %s could not be converted to integer.", from->normalize().c_str());
+        error("could not apply integer promotion on type %s.", from->normalize().c_str());
     }
 }
 
@@ -812,13 +809,13 @@ void Generator::visit_func_def(FuncDef *fd) {
     for (auto arg : sig->parameters()) {
         auto type = arg->type();
         auto name = arg->token()->get_lexeme();
-        if (type->is_arithmetic() || type->is_pointer()) {
+        if (type->is_scalar()) {
             auto addr =
                 ObjAddr::base_addr(scope->find_var_in_local(name)->offset(), rbp)->to_string();
-            if (type->is_integer())
-                emit(imov(type->size()), reg_args[integer_idx++][8 - type->size()], addr);
-            else
+            if (type->is_float())
                 emit(fmov(type->size()), xmm[float_idx++], addr);
+            else
+                emit(imov(type->size()), reg_args[integer_idx++][8 - type->size()], addr);
         }
     }
     // function body
@@ -965,43 +962,45 @@ void Generator::emit_float_binary(Binary *e) {
 // .LNOT
 
 void Generator::emit_logic(Binary *e, bool isand) {
-    auto cmpf_set = [this](Expr *e) {
-        emit_fset0(fsrc());
-        emit(finst("ucomi", e->type()->size()), fdest(), fsrc());
+    auto cmpzero = [this](int size, bool isfloat) {
+        if (isfloat) {
+            emit_fset0(fsrc());
+            emit(finst("ucomi", size), fdest(), fsrc());
+        } else {
+            emit(iinst("cmp", size), 0, idest(size));
+        }
     };
-    auto cmpi_set = [this](Expr *e) {
-        emit_iset0(isrc(8));
-        emit(iinst("com", e->type()->size()), idest(e->type()->size()), isrc(e->type()->size()));
-    };
-    auto isfloat = e->type()->is_float();
-    auto lsetres = branch_label();
-    auto lend    = branch_label();
+    auto setzero = branch_label();
+    auto setone  = branch_label();
+    auto exprend = branch_label();
     // emit code for lhs
-    visit(e);
+    visit(e->lhs());
     // compare result with 0
-    if (isfloat)
-        cmpf_set(e->lhs());
-    else
-        cmpi_set(e->lhs());
+    cmpzero(e->lhs()->type()->size(), e->lhs()->type()->is_float());
     // short out jmp
-    auto jmp = isand ? "je" : "jne";
-    emit(jmp, lsetres);
+    if (isand) {
+        emit("je", setzero);
+    } else {
+        emit("jne", setone);
+    }
     // emit code for rhs
-    visit(e);
+    visit(e->rhs());
     // compare result with 0
-    if (isfloat)
-        cmpf_set(e->lhs());
-    else
-        cmpi_set(e->rhs());
-    emit(jmp, lsetres);
+    cmpzero(e->rhs()->type()->size(), e->rhs()->type()->is_float());
+    if (isand) {
+        emit("je", setzero);
+        emit("jmp", setone);
+    } else {
+        emit("jne", setone);
+        emit("jmp", setzero);
+    }
+    emit_label(setzero);
+    emit_iset0(rax);
+    emit("jmp", exprend);
+    emit_label(setone);
     emit("movq", 1, rax);
-    emit("jmp", lend);
-    emit_label(lsetres);
-    if (isand)
-        emit_iset0(rax);
-    else
-        emit("movq", 1, rax);
-    emit_label(lend);
+    // emit("jmp", exprend);
+    emit_label(exprend);
 }
 
 void Generator::visit_mult(Multi *e) {
@@ -1271,7 +1270,7 @@ void Generator::visit_for(For *f) {
     restore_loop(pib, pbt);
     _current_scope = bak_scope;
 }
-void Generator::visit_goto(Goto *g) { emit("jmp", userlabel(g->label())); }
+void Generator::visit_goto(Goto *g) { emit("jmp", g->label()); }
 void Generator::visit_continue(Continue *c) { emit("jmp", _cont_to->label); }
 void Generator::visit_break(Break *b) { emit("jmp", _break_to->label); }
 void Generator::visit_return(Return *rs) {
@@ -1366,6 +1365,7 @@ void Generator::visit_unary(Unary *ue) {
         auto dest = _lvgtr->addr();
         auto add  = ue->type()->is_float() ? finst("add", ue->type()->size())
                                            : iinst("add", ue->type()->size());
+        // did not deal with pointer
         emit(add, 1, dest);
         visit(ue->oprand());
         return;
@@ -1403,15 +1403,26 @@ void Generator::visit_unary(Unary *ue) {
         }
         return;
     }
-    case '!':
-        unimplement();
+    case '!': {
+        visit(ue->oprand());
+        if (ue->oprand()->type()->is_float()) {
+            emit_fset0(fsrc());
+            emit_fcmp("sete", ue->oprand()->type()->size());
+        } else {
+            emit_iset0(isrc(8));
+            emit_icmp("sete", ue->oprand()->type()->size());
+        }
+        break;
+    }
     case '&': {
         _lvgtr->visit(ue->oprand());
         emit("leaq", _lvgtr->addr(), rax);
         return;
     }
     case '~':
-        unimplement();
+        visit(ue->oprand());
+        emit(iinst("not", ue->type()->size()), idest(ue->type()->size()));
+        break;
     default:
         unreachable();
     }

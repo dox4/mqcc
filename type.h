@@ -214,6 +214,9 @@ class Derefed : public Type {
     virtual Derefed *as_derefed() noexcept { return this; }
     virtual const int align() const { return 8; }
     virtual void set_derefed(const Type *derefed) { _derefed = derefed; }
+    virtual bool is_compitable_with(const Type *that) const {
+        return that->is_derefed() && that->derefed()->is_compitable_with(derefed());
+    }
 
   private:
     const Type *_derefed;
@@ -227,22 +230,22 @@ class PointerType : public Derefed {
     virtual const std::string normalize() const { return derefed()->normalize() + "*"; }
     virtual const std::uint64_t size() const noexcept { return 8; };
     virtual bool is_pointer() const noexcept { return true; }
-    virtual bool is_compitable_with(const Type *that) const {
-        if (Type::is_compitable_with(that)) {
-            return true;
-        }
-        if (that->is_derefed()) {
-            return true;
-        }
-        // long
-        if (that->is_integer()) {
-            if (that->size() < size()) {
-                // TODO: warn that cast from smaller integer to pointer
-            }
-            return true;
-        }
-        return false;
-    }
+//    virtual bool is_compitable_with(const Type *that) const {
+//        if (Type::is_compitable_with(that)) {
+//            return true;
+//        }
+//        if (that->is_derefed()) {
+//            return true;
+//        }
+//        // long
+//        if (that->is_integer()) {
+//            if (that->size() < size()) {
+//                // TODO: warn that cast from smaller integer to pointer
+//            }
+//            return true;
+//        }
+//        return false;
+//    }
 };
 
 class Member {

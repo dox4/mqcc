@@ -61,9 +61,9 @@ void Scanner::skip_block_comment() {
 
 void Scanner::set_token_start() { _token_start = _sp->copy(); }
 const char *Scanner::dup_lexeme() {
-    auto *start = _token_start->current();
-    auto *end   = _sp->current();
-    auto size   = end - start;
+    auto *start  = _token_start->current();
+    auto *end    = _sp->current();
+    auto size    = end - start;
     auto *lexeme = strndup(start, size + 1);
     lexeme[size] = '\0';
     return lexeme;
@@ -87,6 +87,7 @@ const Token *Scanner::get_token() {
     case '?':
     case ',':
     case '.':
+    case '~':
         next();
         return make_token(ch);
     case '+':
@@ -190,7 +191,36 @@ const Token *Scanner::get_token() {
     }
 }
 
+const Token *Scanner::create_int_token(int base) {
+    auto *lexeme = dup_lexeme();
+    // strtoull could not parse binary number with '0b' prefix
+    uint64_t val = strtoull(base == 2 ? lexeme + 2 : lexeme, nullptr, base);
+    return make_token(TK_INTEGER_LITERAL, lexeme, val);
+}
 const Token *Scanner::get_number() {
+    if (test('0')) {
+        next();
+        // hex
+        if (try_next('x') || try_next('X')) {
+            while (isxdigit(peek()))
+                next();
+            return create_int_token(16);
+        }
+        // binary
+        if (try_next('b') || try_next('B')) {
+            while (try_next('0') || try_next('1'))
+                ;
+            return create_int_token(2);
+        }
+        // octal
+        if (peek() >= '0' && peek() <= '7') {
+            while (peek() >= '0' && peek() <= '7')
+                next();
+            return create_int_token(8);
+        }
+        // here allow 098... like decimal number
+    }
+
     while (isdigit(peek()))
         next();
 
@@ -207,9 +237,7 @@ const Token *Scanner::get_number() {
     try_next('u') || try_next('U');
     try_next('l') || try_next('L');
     try_next('l') || try_next('L');
-    auto *lexeme = dup_lexeme();
-    uint64_t val = strtoull(lexeme, nullptr, 10);
-    return make_token(TK_INTEGER_LITERAL, lexeme, val);
+    return create_int_token(10);
 }
 
 const Token *Scanner::get_name_or_keyword() {

@@ -233,33 +233,31 @@ list<Member *> Parser::parse_member_decl(Attribute *attr, const Type *base) {
 
 const Type *Parser::parse_struct_union_decl() {
     // struct or union
-    auto is_union = test(TK_UNION);
-    if (is_union)
-        next();
-    else
+    auto is_union = try_next(TK_UNION);
+    if (!is_union)
         expect(TK_STRUCT);
     // tag (opt)
     auto tag = test(TK_NAME) ? peek() : nullptr;
     if (tag != nullptr)
         next();
     // forward declaration
+    Type *incomplete;
     if (tag != nullptr) {
-        auto stype = _scope->find_mut_tag_in_local(tag->get_lexeme());
-        if (stype != nullptr)
-            return stype;
-        auto uncomplete_type = new StructType(tag, list<Member *>{});
-        _scope->push_tag(tag->get_lexeme(), uncomplete_type);
+        incomplete = _scope->find_mut_tag_in_local(tag->get_lexeme());
+        if (incomplete == nullptr) {
+            incomplete = new StructType(tag, list<Member *>{});
+            _scope->push_tag(tag->get_lexeme(), incomplete);
+        }
     }
     if (!try_next('{')) {
         if (tag == nullptr)
             error_at(peek(), "unexpected token while parsing struct or union.");
-        return _scope->find_mut_tag_in_local(tag->get_lexeme());
+        return incomplete;
     }
     if (tag != nullptr) {
-        auto stype = _scope->find_mut_tag_in_local(tag->get_lexeme());
-        if (stype->is_complete())
+        if (incomplete->is_complete())
             error_at(tag, "redefined struct or union.");
-        if (stype->as_struct()->is_union() != is_union || stype->is_enum())
+        if (incomplete->as_struct()->is_union() != is_union || incomplete->is_enum())
             error_at(tag, "type conflicted with previous declaration.");
     }
     list<Member *> members;
@@ -726,9 +724,13 @@ vector<const HalfType *> Parser::parse_parameters() {
     }
     // (type name)
     auto first = parse_parameter();
+    if (first->type()->is_array())
+        first = new HalfType(first->token(), new PointerType(first->type()->derefed()));
     result.push_back(first);
     while (try_next(',')) {
         auto param = parse_parameter();
+        if (param->type()->is_array())
+            param = new HalfType(param->token(), new PointerType(param->type()->derefed()));
         result.push_back(param);
     }
     expect(')');
@@ -737,6 +739,11 @@ vector<const HalfType *> Parser::parse_parameters() {
 
 Expr *Parser::parse_array_dimen() {
     expect('[');
+    if (test(']')) {
+        auto *expr = new IntConst(peek(), -1);
+        next();
+        return expr;
+    }
     auto expr = parse_expr();
     if (!expr->is_int_const())
         error_at(expr->token(), "array dimen requires int constant.");
@@ -905,12 +912,9 @@ Expr *Parser::parse_postfix() {
             continue;
         }
         // postfix inc/dec
-        if (try_next(TK_INC)) {
-            ret = new PostInc(ret);
-            continue;
-        }
-        if (try_next(TK_DEC)) {
-            ret = new PostDec(ret);
+        if (test(TK_INC) || test(TK_DEC)) {
+            ret = make_post(peek(), ret);
+            next();
             continue;
         }
         auto pk = peek();
@@ -938,6 +942,30 @@ Expr *Parser::parse_postfix() {
         break;
     }
     return ret;
+}
+
+// expr ++ => ($var1 = &expr, $var2 = *$var1, *$var1 = $var2 + 1, $var2)
+// expr -- => ($var1 = &expr, $var2 = *$var1, *$var1 = $var2 - 1, $var2)
+// chibicc converts A++ to `(typeof A)((A += 1) - 1)`
+Expr *Parser::make_post(const Token *op, Expr *expr) {
+    auto ftok1 = Token::fake_name_token(op->get_position());
+    create_local_variable(ftok1, new PointerType(expr->type()));
+    auto *var1 = new Identifier(ftok1, _scope);
+    auto ftok2 = Token::fake_name_token(op->get_position());
+    create_local_variable(ftok2, expr->type());
+    auto *var2  = new Identifier(ftok2, _scope);
+    auto *expr1 = new Assignment(op, var1, new TypedUnaryExpr<'&'>(expr));
+    auto *expr2 = new Assignment(op, var2, new TypedUnaryExpr<'*'>(var1));
+    auto *tok   = Token::make_token(op->get_type() == TK_INC ? '+' : '-', op->get_position());
+    Expr *val;
+    if (expr->type()->is_float())
+        val = new FloatConst(op, 1.0);
+    else if (expr->type()->is_integer() || expr->type()->is_derefed())
+        val = new IntConst(op, 1);
+    else
+        error_at(op, "++/-- could not be apply on type %s", expr->type()->normalize().c_str());
+    auto *expr3 = new Assignment(op, new TypedUnaryExpr<'*'>(var1), new Add(tok, var2, val));
+    return new Comma(op, new Comma(op, new Comma(op, expr1, expr2), expr3), var2);
 }
 
 // argument-expression-list:
@@ -974,16 +1002,24 @@ Expr *Parser::parse_unary() {
     // unary operator
     if (try_next('&'))
         return new TypedUnaryExpr<'&'>(parse_cast());
-    if (try_next('*'))
-        return new TypedUnaryExpr<'*'>(parse_cast());
+    if (try_next('*')) {
+        auto *cast = parse_cast();
+        if (!cast->type()->is_derefed())
+            error_at(cast->token(), "unary '*' could only apply on pointer or array type.");
+        return new TypedUnaryExpr<'*'>(cast);
+    }
     if (try_next('+'))
         return new TypedUnaryExpr<'+'>(parse_cast());
     if (try_next('-'))
         return new TypedUnaryExpr<'-'>(parse_cast());
     if (try_next('!'))
         return new TypedUnaryExpr<'!'>(parse_cast());
-    if (try_next('~'))
-        return new TypedUnaryExpr<'~'>(parse_cast());
+    if (try_next('~')) {
+        auto *cast = parse_cast();
+        if (!cast->type()->is_integer())
+            error_at(cast->token(), "unary '~' could only apply on integer type.");
+        return new TypedUnaryExpr<'~'>(cast);
+    }
     if (test(TK_SIZEOF)) {
         auto tok = peek();
         next();
@@ -992,8 +1028,9 @@ Expr *Parser::parse_unary() {
             if (tok->get_type() == TK_NAME) {
                 auto defined = _scope->find_var(tok->get_lexeme());
                 if (defined != nullptr && defined->attr()->is_typedef) {
+                    next();
+                    expect(')');
                     if (defined->type()->is_complete()) {
-                        expect(')');
                         return new IntConst(tok, defined->type()->size());
                     } else {
                         // type is not complete, it must be struct or union with a tag
@@ -1242,11 +1279,18 @@ Expr *Parser::parse_assignment() {
     return expr;
 }
 
+void Parser::create_local_variable(const Token *tok, const Type *type) {
+    // save local variable
+    auto obj = new Object(tok, type, nullptr);
+    _cfd->append_local_variable(obj);
+    _scope->push_var(tok->get_lexeme(), obj);
+}
 Expr *Parser::complex_assignment(const Token *tok, Expr *dest, Expr *rhs) {
     auto *fname = Token::fake_name_token(tok->get_position());
     auto *ident = new Identifier(fname, _scope);
     // first, create a local variable to store the address of lhs's result
-    auto *ref    = new TypedUnaryExpr<'&'>(dest);
+    auto *ref = new TypedUnaryExpr<'&'>(dest);
+    create_local_variable(fname, ref->type());
     auto *expr1 = new Assignment(tok, ident, ref);
     // second, apply binary operation on the value and assign to the result
     auto deref = new TypedUnaryExpr<'*'>(ident);
@@ -1299,10 +1343,6 @@ Expr *Parser::complex_assignment(const Token *tok, Expr *dest, Expr *rhs) {
     }
     auto *expr2 = new Assignment(tok, deref, bin);
 
-    // save local variable
-    auto obj = new Object(fname, ref->type(), nullptr);
-    _cfd->append_local_variable(obj);
-    _scope->push_var(fname->get_lexeme(), obj);
     // finally, make a comma expr
     return new Comma(tok, expr1, expr2);
 }
@@ -1326,6 +1366,13 @@ static string caselabelmaker() {
     s << ".LCD_" << label_conter++;
     return s.str();
 }
+
+static string userdefinedlabel(const char *label) {
+    stringstream ss;
+    ss << ".Lgoto_" << label;
+    return ss.str();
+}
+
 // (6.8.1) labeled-statement:
 //      identifier : statement
 //      case constant-expression : statement
@@ -1498,10 +1545,10 @@ Stmt *Parser::parse_jump() {
     case TK_GOTO:
         next();
         if (test(TK_NAME)) {
-            auto ident = peek()->get_lexeme();
+            auto ident = peek();
             next();
             expect(';');
-            return new Goto(ident);
+            return new Goto(ident, userdefinedlabel(ident->get_lexeme()));
         }
         // report an error
         expect(TK_NAME);
@@ -1537,6 +1584,17 @@ Stmt *Parser::parse_jump() {
 //   O  iteration-statement
 //   O  jump-statement
 Stmt *Parser::parse_stmt() {
+    // typedef'ed name may be conflicted with label, so check if it be a labeled statement
+    if (test(TK_NAME)) {
+        auto tk = peek();
+        next();
+        if (try_next(':')) {
+            auto stmt = parse_stmt();
+            return new Labeled(userdefinedlabel(tk->get_lexeme()), stmt);
+        }
+        // if cannot parse a labeled statement, it maybe leads declaration or expression
+        unget();
+    }
     if (maybe_decl()) {
         auto decl = parse_declaration();
         if (decl == nullptr)
@@ -1573,16 +1631,6 @@ Stmt *Parser::parse_stmt() {
     case TK_CASE:
     case TK_DEFAULT:
         return parse_labeled();
-    case TK_NAME: {
-        auto tk = peek();
-        next();
-        if (try_next(':')) {
-            auto stmt = parse_stmt();
-            return new Labeled(tk->get_lexeme(), stmt);
-        }
-        // if cannot parse a labeled statement, it must be an expression statement
-        unget();
-    }
     default: {
         auto expr = parse_expr();
         expect(';');

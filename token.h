@@ -33,11 +33,11 @@ enum TokenType {
     TK_LSB     = '[',  // [
     TK_BSLASH  = '\\', //
     TK_RSB     = ']',  // ]
-    TK_CARET   = '^',  // ^
+    TK_XOR     = '^',  // ^
     TK_LCB     = '{',  // {
     TK_BOR     = '|',  // |
     TK_RCB     = '}',  // }
-    TK_XOR     = '~',  // ~
+    TK_BNOT    = '~',  // ~
 
     TK_ARROW = 128,   // ->
     TK_INC,           // ++
@@ -160,8 +160,8 @@ class Token {
     static const Token *make_token(int tp, const char *lexeme, const SourcePosition *sp, T v) {
         return new Token(tp, sp, lexeme, v);
     }
-    
-    static const Token* fake_name_token(const SourcePosition*);
+
+    static const Token *fake_name_token(const SourcePosition *);
     ~Token();
 
   private:
