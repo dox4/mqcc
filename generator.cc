@@ -133,12 +133,12 @@ class LabelMaker {
 
 static LabelMaker const_label = LabelMaker("C");
 // floating number as unsigned integer number
-static LabelMaker float_label      = LabelMaker("FAU");
+static LabelMaker float_label      = LabelMaker("FL");
 static LabelMaker func_end_label   = LabelMaker("FE");
 static LabelMaker branch_label     = LabelMaker("B");
-static LabelMaker iter_begin_label = LabelMaker("IB");
-static LabelMaker iter_end_label   = LabelMaker("IE");
-static LabelMaker test_label       = LabelMaker("T");
+static LabelMaker continue_label   = LabelMaker("CT");
+static LabelMaker break_label      = LabelMaker("BT");
+static LabelMaker cond_label       = LabelMaker("COND");
 static LabelMaker switch_end_label = LabelMaker("SE");
 
 static const string gvar_label(const string name) { return "GVAR_" + name; }
@@ -854,6 +854,14 @@ void Generator::visit_string_literal(StringLiteral *str) {
 
 void Generator::emit_iset0(const string_view &reg) { emit("xorq", reg, reg); }
 void Generator::emit_fset0(const string_view &freg) { emit("pxor", freg, freg); }
+void Generator::emit_cmpzero(int size, bool isfloat) {
+    if (isfloat) {
+        emit_fset0(fsrc());
+        emit(finst("ucomi", size), fdest(), fsrc());
+    } else {
+        emit(iinst("cmp", size), 0, idest(size));
+    }
+}
 void Generator::emit_arithmetic_integer_additive(Add *a) {
     emit_oprands_for_integer_binary(a);
     auto width = a->lhs()->type()->size();
@@ -962,21 +970,13 @@ void Generator::emit_float_binary(Binary *e) {
 // .LNOT
 
 void Generator::emit_logic(Binary *e, bool isand) {
-    auto cmpzero = [this](int size, bool isfloat) {
-        if (isfloat) {
-            emit_fset0(fsrc());
-            emit(finst("ucomi", size), fdest(), fsrc());
-        } else {
-            emit(iinst("cmp", size), 0, idest(size));
-        }
-    };
     auto setzero = branch_label();
     auto setone  = branch_label();
     auto exprend = branch_label();
     // emit code for lhs
     visit(e->lhs());
     // compare result with 0
-    cmpzero(e->lhs()->type()->size(), e->lhs()->type()->is_float());
+    emit_cmpzero(e->lhs()->type()->size(), e->lhs()->type()->is_float());
     // short out jmp
     if (isand) {
         emit("je", setzero);
@@ -986,7 +986,7 @@ void Generator::emit_logic(Binary *e, bool isand) {
     // emit code for rhs
     visit(e->rhs());
     // compare result with 0
-    cmpzero(e->rhs()->type()->size(), e->rhs()->type()->is_float());
+    emit_cmpzero(e->rhs()->type()->size(), e->rhs()->type()->is_float());
     if (isand) {
         emit("je", setzero);
         emit("jmp", setone);
@@ -1189,13 +1189,13 @@ void Generator::visit_while(While *w) {
     backup_loop(&pib, &pbt);
 
     // create new labels used in this scope
-    auto bl = iter_begin_label();
-    auto el = iter_end_label();
+    auto bl = continue_label();
+    auto el = break_label();
     BreakTo bt{el};
-    ContinueTo ib{bl};
+    ContinueTo ct{bl};
 
     // assign new temporary labels
-    restore_loop(&ib, &bt);
+    restore_loop(&ct, &bt);
 
     // emit code
     emit_label(bl);
@@ -1216,8 +1216,8 @@ void Generator::visit_do_while(DoWhile *dw) {
     backup_loop(&pib, &pbt);
 
     // create new labels used in this scope
-    auto bl = iter_begin_label();
-    auto el = iter_end_label();
+    auto bl = continue_label();
+    auto el = break_label();
     BreakTo bt{el};
     ContinueTo ib{bl};
 
@@ -1233,20 +1233,41 @@ void Generator::visit_do_while(DoWhile *dw) {
     // restore iteration state
     restore_loop(pib, pbt);
 }
+// `for` statement is a bit different from `while`, 'cause of its accumulator part
+// its structure may be like below:
+// +------+-----------------------------------+
+// | init |   code of initializer;            |
+// +------+-----------------------------------+
+// | cond | condition_label:                  |
+// |      |   code of condition;              |
+// |      |   if false: jmp for_end_label     |
+// |      |   else go down through            |
+// +------+-----------------------------------+
+// | body |   code of for body:               |
+// |      |     - continue to continue_label; |
+// |      |     - break to for_end_label;     |
+// +------+-----------------------------------+
+// | accu | continue_label:                   |
+// | mula |   code of accumulator;            |
+// | ter  |   jmp condition_label             |
+// +------+-----------------------------------+
+// | end  | for_end_label:                    |
+// +------+-----------------------------------+
 void Generator::visit_for(For *f) {
     // backup current iteration state
-    ContinueTo *pib;
-    BreakTo *pbt;
-    backup_loop(&pib, &pbt);
+    ContinueTo *ctbackup;
+    BreakTo *btbackup;
+    backup_loop(&ctbackup, &btbackup);
 
     // create new labels used in this scope
-    auto bl = iter_begin_label();
-    auto el = iter_end_label();
-    BreakTo bt{el};
-    ContinueTo ib{bl};
+    auto &ctlabel = continue_label();
+    auto &btlabel = break_label();
+    BreakTo bt{btlabel};
+    ContinueTo ct{ctlabel};
+    auto &cond = cond_label();
 
     // assign new temporary labels
-    restore_loop(&ib, &bt);
+    restore_loop(&ct, &bt);
 
     // backup scope
     auto *bak_scope = _current_scope;
@@ -1254,20 +1275,21 @@ void Generator::visit_for(For *f) {
 
     // emit code
     visit(f->init());
-    emit_label(bl);
+    emit_label(cond);
     if (f->cond() != nullptr) {
         visit(f->cond());
         emit("cmpl", 0, eax);
-        emit("je", el);
+        emit("je", btlabel);
     }
     visit(f->body());
+    emit_label(ctlabel);
     if (f->accumulator() != nullptr)
         visit(f->accumulator());
-    emit("jmp", bl);
-    emit_label(el);
+    emit("jmp", cond);
+    emit_label(btlabel);
 
     // restore loop status
-    restore_loop(pib, pbt);
+    restore_loop(ctbackup, btbackup);
     _current_scope = bak_scope;
 }
 void Generator::visit_goto(Goto *g) { emit("jmp", g->label()); }
@@ -1278,6 +1300,14 @@ void Generator::visit_return(Return *rs) {
     emit("jmp", _current_fn.ret_label);
 }
 
+void Generator::visit_cond(Cond *cond) {
+    visit(cond->cond());
+    bool isfloat = cond->cond()->type()->is_float();
+    emit_cmpzero(cond->cond()->type()->size(),isfloat );
+    if (isfloat) {
+        emit("jp", "");
+    }
+}
 void Generator::visit_assignment(Assignment *assignment) {
     auto rhs = assignment->rhs();
     auto lhs = assignment->lhs();
@@ -1424,6 +1454,7 @@ void Generator::visit_unary(Unary *ue) {
         emit(iinst("not", ue->type()->size()), idest(ue->type()->size()));
         break;
     default:
+        error_at(ue->token(), "error on generate code for this.");
         unreachable();
     }
 }

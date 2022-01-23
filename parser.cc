@@ -20,20 +20,23 @@ using namespace std;
 
 /// static functions
 
+static Expr *eval(const Type *type, Expr *cast);
 static Expr *conv(const Type *type, Expr *expr) {
     if (expr->kind() == EXPR_FUNC_CALL)
         return expr;
     if (expr->type()->equals_to(type))
         return expr;
+    if (type == &BuiltinType::Void)
+        return new Conv(type, expr);
     if (!type->is_compitable_with(expr->type())) {
         error_at(expr->token(), "uncompitable type with implicit conversion: from %s to %s",
                  expr->type()->normalize().c_str(), type->normalize().c_str());
     }
-    return new Conv(type, expr);
+    return eval(type, expr);
 }
 
 static void apply_uac_on_binary(Expr *e) {
-    Binary *b     = static_cast<Binary *>(e);
+    Binary *b     = e->as_binary();
     auto uac_type = uac(b->lhs()->type(), b->rhs()->type());
     b->set_lhs(conv(uac_type, b->lhs()));
     b->set_rhs(conv(uac_type, b->rhs()));
@@ -45,13 +48,17 @@ static void check_scalar(const Type *type, const Token *tok) {
 }
 
 static void check_type_integers(Expr *e) {
-    Binary *b = static_cast<Binary *>(e);
+    if (!e->is_binary())
+        return;
+    Binary *b = e->as_binary();
     if (!(b->lhs()->type()->is_integer() && b->rhs()->type()->is_integer()))
         error_invalid_oprands(b->token(), b->lhs()->type(), b->rhs()->type());
 }
 
 static void check_type_arithmetics(Expr *e) {
-    Binary *b = static_cast<Binary *>(e);
+    if (!e->is_binary())
+        return;
+    Binary *b = e->as_binary();
     if (!(b->lhs()->type()->is_arithmetic() && b->rhs()->type()->is_arithmetic()))
         error_invalid_oprands(b->token(), b->lhs()->type(), b->rhs()->type());
 }
@@ -126,11 +133,291 @@ static void check_type_for_additive(Expr *e) {
 }
 
 static void check_type_scalars(Expr *e) {
-    Binary *b = static_cast<Binary *>(e);
+    if (!e->is_binary())
+        return;
+    Binary *b = e->as_binary();
     if (!(b->lhs()->type()->is_scalar() && b->rhs()->type()->is_scalar()))
         error_invalid_oprands(b->token(), b->lhs()->type(), b->rhs()->type());
 }
 
+static Expr *eval(const Type *type, Expr *cast) {
+#define cast_int(var, typeref, type_to)                                                            \
+    do {                                                                                           \
+        if (type == typeref) {                                                                     \
+            var->set_type(type);                                                                   \
+            var->set_value((type_to)(var->value()));                                               \
+            return var;                                                                            \
+        }                                                                                          \
+    } while (false)
+#define cast_float(fexpr, typeref, type_to)                                                        \
+    do {                                                                                           \
+        if (type == typeref) {                                                                     \
+            auto value = (type_to)fexpr->value();                                                  \
+            auto *var  = new IntConst(fexpr->token(), value, typeref);                             \
+            return var;                                                                            \
+        }                                                                                          \
+    } while (false)
+    if (type == &BuiltinType::Void)
+        return new Conv(type, cast);
+    if (!type->is_compitable_with(cast->type()))
+        error_at(cast->token(), "cast with uncompitable type.");
+    if (cast->is_int_const()) {
+        auto *intconst = cast->as_int_const();
+        if (type->is_pointer()) {
+            intconst->set_type(type);
+            return intconst;
+        }
+        if (type->is_integer()) {
+            if (type->size() < intconst->type()->size()) {
+                cast_int(intconst, &BuiltinType::Bool, bool);
+                cast_int(intconst, &BuiltinType::Char, char);
+                cast_int(intconst, &BuiltinType::UChar, unsigned char);
+                cast_int(intconst, &BuiltinType::Short, short);
+                cast_int(intconst, &BuiltinType::UShort, unsigned short);
+                cast_int(intconst, &BuiltinType::Int, int);
+                cast_int(intconst, &BuiltinType::UInt, unsigned int);
+            }
+            intconst->set_type(type);
+            return cast;
+        } else if (type->is_float()) {
+            cast_int(intconst, &BuiltinType::Float, float);
+            cast_int(intconst, &BuiltinType::Double, double);
+        }
+    } else if (cast->is_float_const()) {
+        auto *floatconst = cast->as_float_const();
+        if (type->is_integer()) {
+            cast_float(floatconst, &BuiltinType::Bool, bool);
+            cast_float(floatconst, &BuiltinType::Char, char);
+            cast_float(floatconst, &BuiltinType::UChar, unsigned char);
+            cast_float(floatconst, &BuiltinType::Short, short);
+            cast_float(floatconst, &BuiltinType::UShort, unsigned short);
+            cast_float(floatconst, &BuiltinType::Int, int);
+            cast_float(floatconst, &BuiltinType::UInt, unsigned int);
+            cast_float(floatconst, &BuiltinType::Long, long);
+            cast_float(floatconst, &BuiltinType::ULong, unsigned long);
+            unreachable();
+        } else if (type->is_float()) {
+            if (type == &BuiltinType::Float) {
+                floatconst->set_value((float)floatconst->value());
+            }
+            floatconst->set_type(type);
+            return cast;
+        }
+    }
+#undef cast_int
+#undef cast_float
+    if (type->equals_to(cast->type()))
+        return cast;
+    return new Cast(type, cast);
+}
+
+// get from chibicc
+static int64_t eval_int(int64_t v, int size) {
+    switch (size) {
+    case 1:
+        return (uint8_t)v;
+    case 2:
+        return (uint16_t)v;
+    case 4:
+        return (uint32_t)v;
+    }
+    return v;
+}
+
+Expr *eval(Binary *binary) {
+    auto *lhs = binary->lhs(), *rhs = binary->rhs();
+    if (!(lhs->is_int_const() || lhs->is_float_const()))
+        return binary;
+    if (!(rhs->is_int_const() || rhs->is_float_const()))
+        return binary;
+    // 0 -> both float, 1 -> one of the two is float, 2 -> both integer
+    int branch = lhs->is_int_const() + rhs->is_int_const();
+#define case0(op)                                                                                  \
+    case 0: {                                                                                      \
+        auto *lhsfloat = lhs->as_float_const();                                                    \
+        lhsfloat->set_value(lhsfloat->value() op rhs->as_float_const()->value());                  \
+        return lhsfloat;                                                                           \
+    } break
+#define case1(op)                                                                                  \
+    case 1: {                                                                                      \
+        if (lhs->is_float_const()) {                                                               \
+            auto *lvar = lhs->as_float_const();                                                    \
+            lvar->set_value(lvar->value() op rhs->as_int_const()->value());                        \
+            return lvar;                                                                           \
+        } else {                                                                                   \
+            auto *lvar = rhs->as_float_const();                                                    \
+            lvar->set_value(lvar->value() op lhs->as_int_const()->value());                        \
+            return lvar;                                                                           \
+        }                                                                                          \
+    } break
+#define case2(op)                                                                                  \
+    case 2: {                                                                                      \
+        auto *lvar = lhs->as_int_const();                                                          \
+        auto *type = uac(lhs->type(), rhs->type());                                                \
+        int64_t v  = lvar->value() op rhs->as_int_const()->value();                                \
+        lvar->set_value(eval_int(v, type->size()));                                                \
+        return eval(type, lvar);                                                                   \
+    } break
+#define default0()                                                                                 \
+    default:                                                                                       \
+        unreachable()
+    auto test_div0 = [](Expr *expr, const char *errmsg) {
+        if (expr->is_int_const() && expr->as_int_const()->value() == 0)
+            warn_at(expr->token(), errmsg);
+        //        if (expr->is_float_const() && expr->as_float_const()->value() == 0.0)
+        //            warn_at(expr->token(), errmsg);
+    };
+    switch (binary->token()->get_type()) {
+    // multiplicative
+    case '*':
+        switch (branch) {
+            case0(*);
+            case1(*);
+            case2(*);
+            default0();
+        }
+    case '/':
+        test_div0(rhs, "divided by zero is undefined.");
+        switch (branch) {
+            case0(/);
+            case1(/);
+            case2(/);
+            default0();
+        }
+    case '%':;
+        switch (branch) {
+            case2(%);
+            default0();
+        }
+    // additive
+    case '+':
+        if (lhs->type()->is_pointer()) {
+            auto *lvar = lhs->as_int_const();
+            lvar->set_value(lvar->value() +
+                            rhs->as_int_const()->value() * lhs->type()->derefed()->size());
+            return lvar;
+        }
+        switch (branch) {
+            case0(+);
+            case1(+);
+            case2(+);
+            default0();
+        }
+    case '-':
+        if (lhs->type()->is_pointer()) {
+            auto *lvar = lhs->as_int_const();
+            if (rhs->type()->is_pointer())
+                lvar->set_value((lvar->value() - rhs->as_int_const()->value()) /
+                                lvar->type()->derefed()->size());
+            else
+                lvar->set_value(lvar->value() -
+                                rhs->as_int_const()->value() * lhs->type()->derefed()->size());
+            return lvar;
+        }
+        switch (branch) {
+            case0(-);
+            case1(-);
+            case2(-);
+            default0();
+        }
+    // shift
+    case TK_LSHIFT:
+        switch (branch) {
+            case2(<<);
+            default0();
+        }
+    case TK_RSHIFT:
+        switch (branch) {
+            case2(>>);
+            default0();
+        }
+    // relational
+    case '>':
+        switch (branch) {
+            case0(>);
+            case1(>);
+            case2(>);
+            default0();
+        }
+    case '<':
+        switch (branch) {
+            case0(<);
+            case1(<);
+            case2(<);
+            default0();
+        }
+    case TK_GEQUAL:
+        switch (branch) {
+            case0(>=);
+            case1(>=);
+            case2(>=);
+            default0();
+        }
+    case TK_LEQUAL:
+        switch (branch) {
+            case0(<=);
+            case1(<=);
+            case2(<=);
+            default0();
+        }
+    // equality
+    case TK_EQUAL:
+        switch (branch) {
+            case0(==);
+            case1(==);
+            case2(==);
+            default0();
+        }
+    case TK_NEQUAL:
+        switch (branch) {
+            case0(!=);
+            case1(!=);
+            case2(!=);
+            default0();
+        }
+    // bit and
+    case '&':
+        switch (branch) {
+            case2(&);
+            default0();
+        }
+    // bit xor
+    case '^':
+        switch (branch) {
+            case2(^);
+            default0();
+        }
+    // bit or
+    case '|':
+        switch (branch) {
+            case2(|);
+            default0();
+        }
+    // logical and
+    case TK_LAND:
+        switch (branch) {
+            case0(&&);
+            case1(&&);
+            case2(&&);
+            default0();
+        }
+    // logical or
+    case TK_LOR:
+        switch (branch) {
+            case0(||);
+            case1(||);
+            case2(||);
+            default0();
+        }
+    default:
+        unreachable();
+    }
+    return binary;
+#undef case0
+#undef case1
+#undef case2
+#undef default0
+}
 /// static functions end
 
 Parser::Parser(Scanner *scanner) : _scanner(scanner), /*_lookups(), _consumed()*/ _tokens() {
@@ -313,10 +600,10 @@ const Type *Parser::parse_enum_decl() {
             break;
         auto *name = parse_ident();
         if (try_next('=')) {
-            auto *const_expr = process_const();
+            auto *const_expr = parse_assignment();
             if (!const_expr->is_int_const())
                 error_at(const_expr->token(), "enum must be integer.");
-            value = const_expr->token()->value<std::uint64_t>();
+            value = const_expr->as_int_const()->value();
         }
         auto *obj = new Object(name->token(), ret, nullptr);
         _scope->push_var(name->get_value(), obj);
@@ -773,7 +1060,7 @@ const Type *Parser::parse_func_or_array_decl(const Type *fake_base) {
         }
         if (fake_base->is_function())
             error_at(peek(), "cannot declare an array of functions.");
-        return new ArrayType(fake_base, strtoul(dimen->token()->get_lexeme(), nullptr, 10));
+        return new ArrayType(fake_base, dimen->as_int_const()->value());
     }
     return fake_base;
 }
@@ -815,13 +1102,13 @@ Expr *Parser::process_const() {
         next();
         return new FloatConst(tk);
     }
-    if (tk->get_type() == TK_INTEGER_LITERAL) {
-        next();
+    if (try_next(TK_INT_LITERAL) || try_next(TK_UINT_LITERAL) || try_next(TK_LONG_LITERAL) ||
+        try_next(TK_ULONG_LITERAL)) {
         return new IntConst(tk);
     }
     if (tk->get_type() == TK_CHARACTER) {
         next();
-        return new IntConst(tk, char(tk->value<uint64_t>()));
+        return new IntConst(tk, char(tk->value<int64_t>()));
     }
     unreachable();
     return nullptr;
@@ -838,7 +1125,7 @@ Expr *Parser::process_const() {
 Expr *Parser::parse_primary() {
     auto tk = peek();
     switch (tk->get_type()) {
-    case TK_INTEGER_LITERAL:
+    case TK_INT_LITERAL:
     case TK_FLOAT_LITERAL:
     case TK_CHARACTER:
         return process_const();
@@ -957,7 +1244,7 @@ Expr *Parser::make_post(const Token *op, Expr *expr) {
     auto *expr1 = new Assignment(op, var1, new TypedUnaryExpr<'&'>(expr));
     auto *expr2 = new Assignment(op, var2, new TypedUnaryExpr<'*'>(var1));
     auto *tok   = Token::make_token(op->get_type() == TK_INC ? '+' : '-', op->get_position());
-    Expr *val;
+    Expr *val   = nullptr;
     if (expr->type()->is_float())
         val = new FloatConst(op, 1.0);
     else if (expr->type()->is_integer() || expr->type()->is_derefed())
@@ -1008,16 +1295,43 @@ Expr *Parser::parse_unary() {
             error_at(cast->token(), "unary '*' could only apply on pointer or array type.");
         return new TypedUnaryExpr<'*'>(cast);
     }
-    if (try_next('+'))
-        return new TypedUnaryExpr<'+'>(parse_cast());
-    if (try_next('-'))
-        return new TypedUnaryExpr<'-'>(parse_cast());
-    if (try_next('!'))
-        return new TypedUnaryExpr<'!'>(parse_cast());
+    if (try_next('+')) {
+        auto *cast = parse_cast();
+        if (!cast->type()->is_arithmetic())
+            error_at(cast->token(), "unary `+` could only apply on arithmetic type.");
+        return cast;
+    }
+    if (try_next('-')) {
+        auto *cast = parse_cast();
+        if (!cast->type()->is_arithmetic())
+            error_at(cast->token(), "unary `-` could only apply on arithmetic type.");
+        if (cast->is_int_const())
+            return cast->as_int_const()->neg();
+        if (cast->is_float_const())
+            return cast->as_float_const()->neg();
+        return new TypedUnaryExpr<'-'>(cast);
+    }
+    if (try_next('!')) {
+        auto *cast = parse_cast();
+        if (cast->is_int_const()) {
+            return cast->as_int_const()->value() == 0 ? IntConst::one(cast->token())
+                                                      : IntConst::zero(cast->token());
+        }
+        if (cast->is_float_const()) {
+            return cast->as_float_const()->value() == 0 ? IntConst::zero(cast->token())
+                                                        : IntConst::one(cast->token());
+        }
+        return new TypedUnaryExpr<'!'>(cast);
+    }
     if (try_next('~')) {
         auto *cast = parse_cast();
         if (!cast->type()->is_integer())
             error_at(cast->token(), "unary '~' could only apply on integer type.");
+        if (cast->is_int_const()) {
+            auto *ic = cast->as_int_const();
+            ic->set_value(~ic->value());
+            return ic;
+        }
         return new TypedUnaryExpr<'~'>(cast);
     }
     if (test(TK_SIZEOF)) {
@@ -1061,7 +1375,8 @@ Expr *Parser::parse_cast() {
         if (maybe_decl()) {
             auto type = parse_type_name();
             expect(')');
-            return new Cast(type, parse_cast());
+            auto *cast = parse_cast();
+            return eval(type, cast);
         } else {
             unget();
         }
@@ -1085,6 +1400,7 @@ Expr *Parser::parse_mult() {
         else
             check_type_arithmetics(expr);
         apply_uac_on_binary(expr);
+        expr = eval(expr->as_binary());
     }
     return expr;
 }
@@ -1100,6 +1416,7 @@ Expr *Parser::parse_add() {
         next();
         expr = new Add(op, expr, parse_mult());
         check_type_for_additive(expr);
+        expr = eval(expr->as_binary());
     }
     return expr;
 }
@@ -1115,6 +1432,7 @@ Expr *Parser::parse_shift() {
         next();
         expr = new Shift(op, expr, parse_add());
         check_type_integers(expr);
+        expr = eval(expr->as_binary());
     }
     return expr;
 }
@@ -1133,6 +1451,8 @@ Expr *Parser::parse_relational() {
         expr = new Relational(op, expr, parse_shift());
         check_type_for_relational(expr);
         apply_uac_on_binary(expr);
+        expr = eval(expr->as_binary());
+        expr = eval(&BuiltinType::Int, expr);
     }
     return expr;
 }
@@ -1149,6 +1469,8 @@ Expr *Parser::parse_equality() {
         expr = new Equality(op, expr, parse_relational());
         check_type_for_relational(expr);
         apply_uac_on_binary(expr);
+        expr = eval(expr->as_binary());
+        expr = eval(&BuiltinType::Int, expr);
     }
     return expr;
 }
@@ -1164,6 +1486,7 @@ Expr *Parser::parse_bit_and() {
         expr = new BitAnd(op, expr, parse_equality());
         check_type_integers(expr);
         apply_uac_on_binary(expr);
+        expr = eval(expr->as_binary());
     }
     return expr;
 }
@@ -1179,6 +1502,7 @@ Expr *Parser::parse_xor() {
         expr = new BitXor(op, expr, parse_bit_and());
         check_type_integers(expr);
         apply_uac_on_binary(expr);
+        expr = eval(expr->as_binary());
     }
     return expr;
 }
@@ -1194,6 +1518,7 @@ Expr *Parser::parse_bit_or() {
         expr = new BitOr(op, expr, parse_xor());
         check_type_integers(expr);
         apply_uac_on_binary(expr);
+        expr = eval(expr->as_binary());
     }
     return expr;
 }
@@ -1208,6 +1533,8 @@ Expr *Parser::parse_log_and() {
         next();
         expr = new LogAnd(op, expr, parse_bit_or());
         check_type_scalars(expr);
+        expr = eval(expr->as_binary());
+        expr = eval(&BuiltinType::Int, expr);
     }
     return expr;
 }
@@ -1222,6 +1549,8 @@ Expr *Parser::parse_log_or() {
         next();
         expr = new LogOr(op, expr, parse_log_and());
         check_type_scalars(expr);
+        expr = eval(expr->as_binary());
+        expr = eval(&BuiltinType::Int, expr);
     }
     return expr;
 }
@@ -1233,6 +1562,10 @@ Expr *Parser::parse_conditional() {
         auto branch_true = parse_expr();
         expect(TK_COLON);
         auto branch_false = parse_conditional();
+        if (cond->is_int_const())
+            return cond->as_int_const()->value() == 0 ? branch_false : branch_true;
+        if (cond->is_float_const())
+            return cond->as_float_const()->value() == 0.0 ? branch_false : branch_true;
         return new Cond(cond, branch_true, branch_false);
     }
     return cond;
@@ -1352,7 +1685,10 @@ Expr *Parser::parse_comma() {
     while (test(',')) {
         auto op = peek();
         next();
-        expr = new Comma(op, expr, parse_assignment());
+        if (expr->is_const())
+            expr = parse_assignment();
+        else
+            expr = new Comma(op, expr, parse_assignment());
     }
     return expr;
 }
@@ -1761,9 +2097,21 @@ void Parser::check_identifier(const Token *token) {
     }
 }
 void Parser::check_assignment(Assignment *a) {
-    if (a->lhs()->type()->is_compitable_with(a->rhs()->type())) {
-        if (!a->lhs()->type()->equals_to(a->rhs()->type()))
-            a->set_rhs(conv(a->lhs()->type(), a->rhs()));
+    auto *lefttype = a->lhs()->type();
+    if (a->rhs()->is_cond()) {
+        auto *cond = a->rhs()->as_cond();
+        if (!lefttype->is_compitable_with(cond->iftrue()->type()))
+            error_at(cond->iftrue()->token(), "assign %s with uncompitable type %s.",
+                     lefttype->normalize().c_str(), cond->iftrue()->type()->normalize().c_str());
+        if (!lefttype->is_compitable_with(cond->iffalse()->type()))
+            error_at(cond->iffalse()->token(), "assign %s with uncompitable type %s.",
+                     lefttype->normalize().c_str(), cond->iffalse()->type()->normalize().c_str());
+        cond->set_iftrue(conv(lefttype, cond->iftrue()));
+        cond->set_iffalse(conv(lefttype, cond->iffalse()));
+        return;
+    }
+    if (lefttype->is_compitable_with(a->rhs()->type())) {
+        a->set_rhs(conv(a->lhs()->type(), a->rhs()));
         return;
     }
     error_at(a->token(), "assign %s with uncompitable type %s.",

@@ -59,6 +59,7 @@ class Visitor {
     virtual void visit_relational(Relational *) = 0;
     virtual void visit_bitwise(Bitwise *)       = 0;
     virtual void visit_logical(Logical *)       = 0;
+    virtual void visit_cond(Cond *)             = 0;
     virtual void visit_assignment(Assignment *) = 0;
     virtual void visit_comma(Comma *)           = 0;
     // statements
@@ -142,6 +143,7 @@ class LValueGenerator : public Visitor {
     virtual void visit_bitwise(Bitwise *) {}
     virtual void visit_logical(Logical *) {}
 
+    virtual void visit_cond(Cond *) {}
     virtual void visit_assignment(Assignment *) {}
     virtual void visit_comma(Comma *);
     // statements
@@ -226,6 +228,7 @@ class Generator : public Visitor {
     virtual void visit_bitwise(Bitwise *);
     virtual void visit_logical(Logical *);
 
+    virtual void visit_cond(Cond *);
     virtual void visit_assignment(Assignment *);
     virtual void visit_comma(Comma *);
     // statements
@@ -271,16 +274,17 @@ class Generator : public Visitor {
     // implement in .cc
     void push(const std::string_view &reg, int, bool);
     void pop(const std::string_view &reg, int, bool);
-    void store_value(ObjAddr*, const Type *);
-    void copy_struct(const Type*);
-    int copy_bytes(ObjAddr*,int offset, int max, int step);
+    void store_value(ObjAddr *, const Type *);
+    void copy_struct(const Type *);
+    int copy_bytes(ObjAddr *, int offset, int max, int step);
 
-    void push_addr(const ObjAddr*);
-    void pop_addr(const ObjAddr*);
+    void push_addr(const ObjAddr *);
+    void pop_addr(const ObjAddr *);
 
     void emit_logic(Binary *, bool isand);
     void emit_iset0(const std::string_view &);
     void emit_fset0(const std::string_view &);
+    void emit_cmpzero(int width, bool isfloat);
     void emit_oprands_for_integer_binary(Binary *);
     void emit_additive(Binary *);
     void emit_arithmetic_integer_additive(Add *);

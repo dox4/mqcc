@@ -191,11 +191,12 @@ const Token *Scanner::get_token() {
     }
 }
 
-const Token *Scanner::create_int_token(int base) {
+const Token *Scanner::create_int_token(int base, int type = TK_INT_LITERAL) {
     auto *lexeme = dup_lexeme();
     // strtoull could not parse binary number with '0b' prefix
-    uint64_t val = strtoull(base == 2 ? lexeme + 2 : lexeme, nullptr, base);
-    return make_token(TK_INTEGER_LITERAL, lexeme, val);
+    int64_t val = strtoul(base == 2 ? lexeme + 2 : lexeme, nullptr, base);
+    // TODO: check range
+    return make_token(type, lexeme, val);
 }
 const Token *Scanner::get_number() {
     if (test('0')) {
@@ -234,10 +235,31 @@ const Token *Scanner::get_number() {
                        : make_token(TK_DOUBLE_LITERAL, lexeme, strtod(lexeme, nullptr));
     }
     // integer number postfix
-    try_next('u') || try_next('U');
-    try_next('l') || try_next('L');
-    try_next('l') || try_next('L');
-    return create_int_token(10);
+    int ull                     = 0b00;
+    constexpr int flag_unsigned = 0b01, flag_long = 0b10;
+    if (try_next('u') || try_next('U'))
+        ull |= flag_unsigned;
+    if (try_next('l') || try_next('L'))
+        ull |= flag_long;
+    if (try_next('l') || try_next('L'))
+        ull |= flag_long;
+    int type = TK_INT_LITERAL;
+    switch (ull) {
+    case 0:
+        break;
+    case flag_unsigned:
+        type = TK_UINT_LITERAL;
+        break;
+    case flag_long:
+        type = TK_LONG_LITERAL;
+        break;
+    case flag_long | flag_unsigned:
+        type = TK_ULONG_LITERAL;
+        break;
+    default:
+        unreachable();
+    }
+    return create_int_token(10, type);
 }
 
 const Token *Scanner::get_name_or_keyword() {
@@ -370,6 +392,6 @@ const Token *Scanner::get_char() {
     expect('\'');
     const char *end = _sp->current();
     const char *dup = strndup(start, end - start);
-    return make_token(TK_CHARACTER, dup, uint64_t(ch));
+    return make_token(TK_CHARACTER, dup, int64_t(ch));
 }
 /// Scanner

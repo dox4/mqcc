@@ -34,7 +34,7 @@ class Scanner {
     void set_token_start();
     const char *dup_lexeme();
     const Token *get_number();
-    const Token *create_int_token(int);
+    const Token *create_int_token(int, int);
     int read_escape();
     const Token *get_string();
     const Token *get_char();

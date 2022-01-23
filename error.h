@@ -16,7 +16,7 @@ inline void error_unexpected(char expected, char actual) {
 #ifdef DEBUG
 #define debug(...)                                                                                 \
     do {                                                                                           \
-        fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                                            \
+        fprintf(stderr, "%s:%d:", __FILE__, __LINE__);                                             \
         fprintf(stderr, __VA_ARGS__);                                                              \
         fprintf(stderr, "\n");                                                                     \
     } while (false)
@@ -40,7 +40,7 @@ inline void error_unexpected(char expected, char actual) {
 
 #define debug_token(tk)                                                                            \
     do {                                                                                           \
-        debug("%s:", __func__);                                                        \
+        debug("%s:", __func__);                                                                    \
         if (tk == nullptr)                                                                         \
             debug("got nullptr.");                                                                 \
         else                                                                                       \

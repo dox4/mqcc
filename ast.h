@@ -80,7 +80,10 @@ enum ExprKind {
     EXPR_ASSIGNMENT, // assignment expression
 
 };
-
+class FloatConst;
+class IntConst;
+class Binary;
+class Cond;
 class Expr : public AstNode {
   public:
     Expr(ExprKind kind) : _kind(kind) {}
@@ -92,8 +95,27 @@ class Expr : public AstNode {
     };
     virtual bool is_unary() const noexcept { return false; }
     virtual bool is_int_const() const noexcept { return false; }
+    virtual bool is_float_const() const noexcept { return false; }
     virtual bool is_const() const noexcept { return false; }
     virtual const Token *token() const { return nullptr; }
+    virtual FloatConst *as_float_const() {
+        unimplement();
+        return nullptr;
+    }
+    virtual IntConst *as_int_const() {
+        unimplement();
+        return nullptr;
+    }
+    virtual bool is_binary() const noexcept { return false; }
+    virtual Binary *as_binary() noexcept {
+        unimplement();
+        return nullptr;
+    }
+    virtual bool is_cond() const noexcept { return false; }
+    virtual Cond *as_cond() noexcept {
+        unimplement();
+        return nullptr;
+    }
 
   private:
     const ExprKind _kind;
@@ -103,14 +125,19 @@ class Cond : public Expr {
   public:
     explicit Cond(Expr *cond, Expr *iftrue, Expr *iffalse)
         : Expr(EXPR_COND), _cond(cond), _iftrue(iftrue), _iffalse(iffalse) {}
-    // virtual void accept(Visitor *);
-    const Expr *cond() const noexcept { return _cond; }
-    const Expr *iftrue() const noexcept { return _iftrue; }
-    const Expr *iffalse() const noexcept { return _iffalse; }
+    Expr *cond() noexcept { return _cond; }
+    Expr *iftrue() noexcept { return _iftrue; }
+    Expr *iffalse() noexcept { return _iffalse; }
+    void set_iftrue(Expr *iftrue) noexcept { _iftrue = iftrue; }
+    void set_iffalse(Expr *iffalse) noexcept { _iffalse = iffalse; }
+    virtual bool is_cond() const noexcept { return true; }
+    virtual Cond *as_cond() noexcept { return this; }
     virtual const Token *token() const { return _cond->token(); }
+    virtual const Type *type() const noexcept { return _iftrue->type(); }
+    virtual void accept(Visitor *v);
 
   private:
-    const Expr *_cond, *_iftrue, *_iffalse;
+    Expr *_cond, *_iftrue, *_iffalse;
 };
 
 class Binary : public Expr {
@@ -124,6 +151,8 @@ class Binary : public Expr {
     // virtual void accept(Visitor *);
     virtual const Type *type() const noexcept { return _lhs->type(); }
     virtual const Token *token() const { return _token; }
+    virtual bool is_binary() const noexcept { return true; }
+    virtual Binary *as_binary() noexcept { return this; }
 
   private:
     const Token *_token;
@@ -284,7 +313,7 @@ class MemberAccess : public Postfix {
 //   ( expression )
 //   ( block-stmt )
 //   generic-selection
-
+class Const;
 class PrimaryExpr : public Expr {
   public:
     PrimaryExpr(ExprKind kind) : Expr(kind) {}
@@ -328,9 +357,17 @@ class FloatConst : public Const {
         _value       = isfloat ? _token->value<float>() : _token->value<double>();
     }
     const double value() const noexcept { return _value; }
+    void set_value(double val) noexcept { _value = val; }
     virtual const Type *type() const noexcept { return _type; }
+    void set_type(const Type *type) noexcept { _type = type; }
+    virtual bool is_float_const() const noexcept { return true; }
     virtual const Token *token() const { return _token; }
     virtual void accept(Visitor *);
+    FloatConst *neg() {
+        _value = -_value;
+        return this;
+    }
+    virtual FloatConst *as_float_const() { return this; }
 
   private:
     double _value;
@@ -342,17 +379,41 @@ class IntConst : public Const {
     explicit IntConst(const Token *token);
     explicit IntConst(const Token *token, int ival)
         : Const(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::Int) {}
-    explicit IntConst(const Token *token, std::uint64_t ival)
+    explicit IntConst(const Token *token, std::int64_t ival)
         : Const(EXPR_INT), _value(ival), _token(token), _type(&BuiltinType::ULong) {}
+    explicit IntConst(const Token *token, std::int64_t ival, const Type *type)
+        : Const(EXPR_INT), _value(ival), _token(token), _type(type) {}
     virtual void accept(Visitor *);
     virtual const Type *type() const noexcept { return _type; }
     virtual bool is_int_const() const noexcept { return true; }
     virtual const Token *token() const noexcept { return _token; }
-    const unsigned long value() const noexcept { return _value; }
-    void neg() { _value = -_value; }
+    const int64_t value() const noexcept { return _value; }
+    void set_value(int64_t val) noexcept {
+        switch (_type->size()) {
+        case 1:
+            _value = std::uint8_t(val);
+            break;
+        case 2:
+            _value = std::uint16_t(val);
+            break;
+        case 4:
+            _value = std::uint32_t(val);
+            break;
+        default:
+            _value = val;
+        }
+    }
+    IntConst *neg() {
+        _value = -_value;
+        return this;
+    }
+    void set_type(const Type *type) noexcept { _type = type; }
+    virtual IntConst *as_int_const() { return this; }
+    static IntConst *one(const Token *);
+    static IntConst *zero(const Token *);
 
   private:
-    std::uint64_t _value;
+    std::int64_t _value;
     const Token *_token;
     const Type *_type;
 };

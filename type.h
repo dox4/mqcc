@@ -51,7 +51,7 @@ class Type {
     // static const Type *Dummy;
     TypeKind kind() const noexcept { return _kind; }
     virtual const std::string normalize() const = 0;
-    virtual const std::uint64_t size() const noexcept { return _size; };
+    virtual const std::int64_t size() const noexcept { return _size; };
     virtual std::string_view name() const { return _name; }
     virtual bool is_void() const noexcept { return false; }
     virtual bool is_arithmetic() const noexcept { return false; }
@@ -184,7 +184,7 @@ class BuiltinType : public Type {
     static const BuiltinType Double;
     static const BuiltinType LDouble;
     virtual const std::string normalize() const { return _normalize; }
-    virtual const std::uint64_t size() const noexcept { return _size; }
+    virtual const std::int64_t size() const noexcept { return _size; }
     virtual bool is_signed() const noexcept { return _is_signed; }
     virtual bool is_arithmetic() const noexcept { return this != &Void; }
     virtual bool is_void() const noexcept { return this == &Void; }
@@ -207,7 +207,7 @@ class BuiltinType : public Type {
 
 class Derefed : public Type {
   public:
-    explicit Derefed(const Type *derefed, TypeKind kind, std::uint64_t size)
+    explicit Derefed(const Type *derefed, TypeKind kind, std::int64_t size)
         : Type(kind, size, ""), _derefed(derefed) {}
     virtual bool is_derefed() const noexcept { return true; }
     virtual const Type *derefed() const noexcept { return _derefed; }
@@ -228,24 +228,25 @@ class PointerType : public Derefed {
     static const PointerType *point_to(const Type *type);
     virtual const Type *point_to() const { return derefed(); }
     virtual const std::string normalize() const { return derefed()->normalize() + "*"; }
-    virtual const std::uint64_t size() const noexcept { return 8; };
+    virtual const std::int64_t size() const noexcept { return 8; };
     virtual bool is_pointer() const noexcept { return true; }
-//    virtual bool is_compitable_with(const Type *that) const {
-//        if (Type::is_compitable_with(that)) {
-//            return true;
-//        }
-//        if (that->is_derefed()) {
-//            return true;
-//        }
-//        // long
-//        if (that->is_integer()) {
-//            if (that->size() < size()) {
-//                // TODO: warn that cast from smaller integer to pointer
-//            }
-//            return true;
-//        }
-//        return false;
-//    }
+    virtual bool is_integer() const noexcept { return true; }
+    virtual bool is_compitable_with(const Type *that) const {
+        if (Type::is_compitable_with(that)) {
+            return true;
+        }
+        if (that->is_derefed()) {
+            return true;
+        }
+        // long
+        if (that->is_integer()) {
+            if (that->size() < size()) {
+                // TODO: warn that cast from smaller integer to pointer
+            }
+            return true;
+        }
+        return false;
+    }
 };
 
 class Member {
@@ -270,7 +271,7 @@ class StructType : public Type {
     }
     const Token *tag() const noexcept { return _tag; }
     virtual const std::string normalize() const;
-    virtual const std::uint64_t size() const noexcept { return _size; };
+    virtual const std::int64_t size() const noexcept { return _size; };
     virtual const int align() const { return _align; }
     virtual bool is_complete() const noexcept { return _is_complete; }
     virtual void set_complete(bool is_complete) noexcept { _is_complete = is_complete; }
@@ -314,7 +315,7 @@ class ArrayType : public Derefed {
         return elem_type()->normalize() + "[" + std::to_string(_cap) + "]";
     }
     virtual bool is_array() const noexcept { return true; }
-    virtual const std::uint64_t size() const noexcept { return _size; };
+    virtual const std::int64_t size() const noexcept { return _size; };
     virtual const int align() const { return elem_type()->align(); }
 
   private:
@@ -330,7 +331,7 @@ class FuncType : public Type {
     const std::vector<const HalfType *> parameters() const noexcept { return _params; }
     const Type *return_type() const noexcept { return _ret; }
     virtual const std::string normalize() const;
-    virtual const std::uint64_t size() const noexcept { return 1; };
+    virtual const std::int64_t size() const noexcept { return 1; };
     virtual bool equals_to(const Type *other) const;
     virtual bool is_function() const noexcept { return true; }
     virtual const FuncType *as_function() const noexcept { return this; }

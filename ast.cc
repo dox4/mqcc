@@ -64,6 +64,8 @@ void Break::accept(Visitor *v) { v->visit_break(this); }
 
 void Return::accept(Visitor *v) { v->visit_return(this); }
 
+void Cond::accept(Visitor *v) { v->visit_cond(this); }
+
 void Multi::accept(Visitor *v) { v->visit_mult(this); }
 
 void Add::accept(Visitor *v) { v->visit_additive(this); }
@@ -86,17 +88,29 @@ void FloatConst::accept(Visitor *v) { v->visit_float_const(this); }
 
 /// IntConst
 
-IntConst::IntConst(const Token *token) : Const(EXPR_INT), _token(token) {
-    _value = _token->value<uint64_t>();
-    if (_value > INT64_MAX || _value > INT32_MAX)
-        warn_at(_token, "integer is so large that represent as unsigned.");
-    _type = _value > INT64_MAX    ? &BuiltinType::ULong
-            : _value > UINT32_MAX ? &BuiltinType::Long
-            : _value > INT32_MAX  ? &BuiltinType::UInt
-                                  : &BuiltinType::Int;
+IntConst::IntConst(const Token *token)
+    : Const(EXPR_INT), _value(token->value<int64_t>()), _token(token) {
+    switch (token->get_type()) {
+    case TK_INT_LITERAL:
+        _type = &BuiltinType::Int;
+        break;
+    case TK_UINT_LITERAL:
+        _type = &BuiltinType::UInt;
+        break;
+    case TK_LONG_LITERAL:
+        _type = &BuiltinType::Long;
+        break;
+    case TK_ULONG_LITERAL:
+        _type = &BuiltinType::ULong;
+        break;
+    default:
+        unreachable();
+    }
 }
 void IntConst::accept(Visitor *v) { v->visit_int_const(this); }
 
+IntConst *IntConst::one(const Token *tok) { return new IntConst(tok, 1); }
+IntConst *IntConst::zero(const Token *tok) { return new IntConst(tok, 0); }
 /// IntConst end
 /// Identifier
 void Identifier::accept(Visitor *v) { v->visit_identifier(this); }

@@ -114,12 +114,15 @@ enum TokenType {
     TK__STATIC_ASSERT, // _Static_assert
     TK__THREAD_LOCAL,  // _Thread_local
 
-    TK_STRING = 300,    // string literal
-    TK_INTEGER_LITERAL, // integer number
-    TK_CHARACTER,       // char literal
-    TK_FLOAT_LITERAL,   // float number
-    TK_DOUBLE_LITERAL,  // double number
-    TK_NAME,            // identifier
+    TK_STRING = 300,   // string literal
+    TK_INT_LITERAL,    // integer number
+    TK_UINT_LITERAL,   // integer number
+    TK_LONG_LITERAL,   // integer number
+    TK_ULONG_LITERAL,  // integer number
+    TK_CHARACTER,      // char literal
+    TK_FLOAT_LITERAL,  // float number
+    TK_DOUBLE_LITERAL, // double number
+    TK_NAME,           // identifier
 
     TK_EOF = 404, // end of file
 };
@@ -168,7 +171,7 @@ class Token {
     int _type;
     const char *_lexeme;
     const SourcePosition *_sp;
-    std::variant<std::uint64_t, double, float, const char *> _value;
+    std::variant<std::int64_t, double, float, const char *> _value;
 };
 
 #endif

@@ -24,7 +24,8 @@ const BuiltinType BuiltinType::LDouble = BuiltinType(TY_LDOUBLE, "long double", 
 
 const Type *uac(const Type *l, const Type *r) {
     if (!l->is_arithmetic() || !r->is_arithmetic())
-        error("usual arithmetic conversions could only apply on arithmetic types");
+        error("usual arithmetic conversions could only apply on arithmetic types, %s and %s",
+              l->normalize().c_str(), r->normalize().c_str());
     // the same
     if (l->equals_to(r))
         return l;
